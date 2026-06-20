@@ -1,0 +1,6 @@
+# pytest / build scratch
+.pytest_cache/
+__pycache__/
+*.pyc
+# test venv
+/tests/.venv/
