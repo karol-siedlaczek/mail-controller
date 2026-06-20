@@ -39,3 +39,9 @@ def test_json_body_field_required():
         with pytest.raises(InvalidRequestError):
             v.json_body_field(body, "missing")
         assert v.json_body_field(body, "a") == 1
+
+
+def test_json_body_non_object_rejected():
+    with app.test_request_context("/", method="POST", json=[1, 2, 3]):
+        with pytest.raises(InvalidRequestError):
+            v.json_body()

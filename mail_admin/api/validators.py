@@ -124,7 +124,7 @@ def json_body(
             return {}
 
     if not isinstance(data, dict):
-        raise InvalidRequestError("Invalid JSON body", detail={ "expected", "JSON object" })
+        raise InvalidRequestError("Invalid JSON body", detail={ "expected": "JSON object" })
 
     return data
 
