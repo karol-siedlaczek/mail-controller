@@ -82,6 +82,8 @@ def create_user(cur, email, domain, password_hash, quota_bytes, active) -> dict:
             f"VALUES (%(e)s, %(did)s, %(p)s, %(q)s, %(a)s) RETURNING {_USER_COLS}",
             {"e": email, "did": domain_id, "p": password_hash, "q": quota_bytes, "a": active},
         )
+    except errors.ForeignKeyViolation:
+        raise UnprocessableError(msg="Referenced domain does not exist", detail={"email": email})
     except errors.UniqueViolation:
         raise ConflictError(msg="User already exists", detail={"email": email})
     return cur.fetchone()

@@ -1,5 +1,6 @@
 import pytest
 from mail_admin.db import repository as repo
+from mail_admin.exception.api_exceptions import UnprocessableError
 
 
 class FakeCursor:
@@ -63,3 +64,11 @@ def test_list_audit_limit_is_parameterized():
     sql, params = cur.executed[-1]
     assert "limit" in sql.lower()
     assert 50 in (params.values() if isinstance(params, dict) else params)
+
+
+def test_create_user_missing_domain_raises_unprocessable():
+    # fetchone() returns None because rows=[] — domain lookup finds nothing
+    cur = FakeCursor(rows=[])
+    with pytest.raises(UnprocessableError):
+        repo.create_user(cur, "a@example.com", "example.com",
+                         "{ARGON2ID}$x", 0, True)
