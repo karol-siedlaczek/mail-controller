@@ -3,7 +3,7 @@ from mail_admin.domain.identity import Identity
 from mail_admin.domain.permission import PermissionAction
 from mail_admin.domain.address import domain_of
 from mail_admin.api.helpers import require_auth, get_remote_ip
-from mail_admin.exception.api_exceptions import PermissionDeniedError
+from mail_admin.exception.api_exceptions import PermissionDeniedError, InvalidRequestError
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,16 @@ class Context:
                 if self._has_star_read():
                     out.append(row)
                 continue
-            domain = value if domain_key == "domain" else domain_of(value)
+            if domain_key == "domain":
+                domain = value
+            else:
+                try:
+                    domain = domain_of(value)
+                except InvalidRequestError:
+                    # malformed value (e.g. SASL login without @): treat like null
+                    if self._has_star_read():
+                        out.append(row)
+                    continue
             if self.can_read(domain):
                 out.append(row)
         return out

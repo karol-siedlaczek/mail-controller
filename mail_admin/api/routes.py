@@ -4,7 +4,7 @@ from flask import Blueprint, Response
 from mail_admin.api.context import Context
 from mail_admin.api.helpers import build_response
 from mail_admin.api.validators import (
-    query_str, query_int, query_bool, json_body, json_body_field,
+    query_str, query_int, json_body, json_body_field,
 )
 from mail_admin.conf.config import Config
 from mail_admin.db.pool import Database

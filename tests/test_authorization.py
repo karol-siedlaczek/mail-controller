@@ -1,7 +1,6 @@
 import os
 import hmac
 import hashlib
-import base64
 import pytest
 from flask import Flask
 from mail_admin.domain.identity import Identity
@@ -84,3 +83,25 @@ def test_filter_audit_null_login_requires_star(monkeypatch):
     app2 = _app_with(scoped)
     with app2.test_request_context("/"):
         assert _ctx(scoped).filter_readable(rows, "login") == [{"login": "u@example.com"}]
+
+
+def test_filter_audit_malformed_login(monkeypatch):
+    # A bare SASL username (no @) must not raise; it is treated like a null login.
+    star = _ident(monkeypatch, "s", ["*:read"], token="t")
+    scoped = _ident(monkeypatch, "x", ["example.com:read"], token="t")
+    rows = [
+        {"login": "garbage"},           # malformed — no @
+        {"login": "u@example.com"},     # valid, scoped reader can see
+        {"login": "u@other.com"},       # valid, scoped reader cannot see
+    ]
+    # *-scope reader keeps malformed row (same as null treatment)
+    app_star = _app_with(star)
+    with app_star.test_request_context("/"):
+        result = _ctx(star).filter_readable(rows, "login")
+    assert result == rows, "star reader should keep all rows including malformed"
+
+    # scoped reader drops malformed row silently; keeps only its own domain
+    app_scoped = _app_with(scoped)
+    with app_scoped.test_request_context("/"):
+        result = _ctx(scoped).filter_readable(rows, "login")
+    assert result == [{"login": "u@example.com"}], "scoped reader should drop malformed and foreign rows"

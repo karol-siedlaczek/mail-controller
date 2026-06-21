@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Karol Siedlaczek 2026
-import os
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -8,7 +7,7 @@ from enum import Enum
 from getpass import getpass
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Optional, Dict, NoReturn
+from typing import Any, Optional, NoReturn
 import base64
 import hmac
 import hashlib

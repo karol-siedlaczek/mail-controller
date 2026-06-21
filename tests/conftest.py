@@ -4,7 +4,6 @@ import hmac
 import hashlib
 import subprocess
 import time
-import socket
 import pytest
 import requests
 
