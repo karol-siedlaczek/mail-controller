@@ -1,0 +1,10 @@
+Flask>=3,<4
+gunicorn
+psycopg2-binary
+argon2-cffi
+bcrypt
+typer
+rich
+requests
+PyYAML
+cryptography
