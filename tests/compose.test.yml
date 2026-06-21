@@ -1,0 +1,57 @@
+# Integration stack for the mail-admin image.
+# `make itest` builds mail-admin:test, then runs `docker compose ... up` here.
+# Postgres applies the mail-server schema (single source of truth) at init.
+name: mail-admin-itest
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: maildb
+      POSTGRES_USER: maildba
+      POSTGRES_PASSWORD: testpw
+    volumes:
+      - ../../mail-server/sql/schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./grant.test.sql:/docker-entrypoint-initdb.d/10-grant.sql:ro
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maildba -d maildb"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mail-admin:
+    image: mail-admin:test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HMAC_KEY_B64: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      CONF_FILE: /config/config.yaml
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DBNAME: maildb
+      PG_USER: maildba
+      PG_PASSWORD: testpw
+      PASSWORD_SCHEME: ARGON2ID
+      LOG_LEVEL: INFO
+      # Token values used by the test client (see conftest.py):
+      #   admin token  = "admintoken"
+      #   artform token= "artformtoken"
+      #   reader token = "readertoken"
+      #   blocked token= "blockedtoken"
+      TOKEN_ADMIN_HMAC: "${TOKEN_ADMIN_HMAC}"
+      TOKEN_ARTFORM_HMAC: "${TOKEN_ARTFORM_HMAC}"
+      TOKEN_READER_HMAC: "${TOKEN_READER_HMAC}"
+      TOKEN_BLOCKED_HMAC: "${TOKEN_BLOCKED_HMAC}"
+    volumes:
+      - ./config.test.yaml:/config/config.yaml:ro
+    ports:
+      - "18080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ping').read()\""]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s

@@ -1,0 +1,13 @@
+identities:
+  - id: admin
+    allowed_cidrs: ["0.0.0.0/0", "::/0"]
+    permissions: ["*:write"]
+  - id: artform
+    allowed_cidrs: ["0.0.0.0/0", "::/0"]
+    permissions: ["artform.test:write"]
+  - id: reader
+    allowed_cidrs: ["0.0.0.0/0", "::/0"]
+    permissions: ["artform.test:read"]
+  - id: blocked
+    allowed_cidrs: ["10.255.255.255/32"]
+    permissions: ["*:write"]
