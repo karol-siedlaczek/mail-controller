@@ -14,18 +14,24 @@ never touches the mail daemons, the mail store, or the DKIM key files.
 
 ## Quick start
 
-Generate the HMAC value for a token and add it to the server env first:
+Generate a shared HMAC key (keep it secret; you will reuse it everywhere):
 
 ```bash
-python mailctl.py token gen-hmac
-# Follow the prompts; copy the TOKEN_<ID>_HMAC=<hex> line to the server env.
+export HMAC_KEY_B64="$(openssl rand -base64 32)"
 ```
 
-Run the API container:
+Generate the per-identity token HMAC for the `admin` identity using that **same** key:
+
+```bash
+python mailctl.py token gen-hmac --id admin --hmac-key-b64 "$HMAC_KEY_B64"
+# Follow the prompts; copy the TOKEN_ADMIN_HMAC=<hex> line from the output.
+```
+
+Run the API container, passing the same key and the token HMAC:
 
 ```bash
 docker run -d \
-  -e HMAC_KEY_B64="$(openssl rand -base64 32)" \
+  -e HMAC_KEY_B64="$HMAC_KEY_B64" \
   -e TOKEN_ADMIN_HMAC="<hex-from-gen-hmac>" \
   -e PG_HOST=postgres \
   -e PG_DBNAME=mail \
@@ -222,7 +228,7 @@ at `/app/mailctl.py` and can also be run standalone (only needs `requests`,
 ### Command tree
 
 ```
-mailctl [--api-url URL] [--token TOKEN] [--format FORMAT]
+mailctl [--api-url URL] [--token TOKEN] [--log-file FILE] [--log-level LEVEL]
   domain  list|add|show|set|rm
   user    list|add|show|passwd|set|rm
   forward list|add|rm
@@ -231,6 +237,8 @@ mailctl [--api-url URL] [--token TOKEN] [--format FORMAT]
   token   identity|scope|gen-hmac
   version
 ```
+
+(Per-subcommand output options: `-f/--format` for output format, `-c/--column` for column selection.)
 
 ### Settings resolution
 
