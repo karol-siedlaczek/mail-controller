@@ -1,6 +1,9 @@
 from pathlib import Path
 
-SCHEMA = (Path(__file__).resolve().parents[2] / "mail-server" / "sql" / "schema.sql").read_text()
+# Reads the vendored copy of the mail-server schema (tests/schema.sql). The
+# authoritative schema lives in the mail-server image; this fixture must declare
+# the mail_admin_rw role + grants this image depends on.
+SCHEMA = (Path(__file__).resolve().parent / "schema.sql").read_text()
 
 
 def test_mail_admin_rw_role_declared():

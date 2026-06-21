@@ -1,6 +1,7 @@
 # Integration stack for the mail-admin image.
 # `make itest` builds mail-admin:test, then runs `docker compose ... up` here.
-# Postgres applies the mail-server schema (single source of truth) at init.
+# Postgres applies a vendored copy of the mail-server schema (tests/schema.sql)
+# at init — the authoritative schema lives in the mail-server image.
 name: mail-admin-itest
 
 services:
@@ -11,7 +12,7 @@ services:
       POSTGRES_USER: maildba
       POSTGRES_PASSWORD: testpw
     volumes:
-      - ../../mail-server/sql/schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+      - ./schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
       - ./grant.test.sql:/docker-entrypoint-initdb.d/10-grant.sql:ro
     ports:
       - "15432:5432"
