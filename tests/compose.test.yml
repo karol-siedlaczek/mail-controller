@@ -13,6 +13,8 @@ services:
     volumes:
       - ../../mail-server/sql/schema.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
       - ./grant.test.sql:/docker-entrypoint-initdb.d/10-grant.sql:ro
+    ports:
+      - "15432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U maildba -d maildb"]
       interval: 2s
