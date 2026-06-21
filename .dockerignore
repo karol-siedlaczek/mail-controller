@@ -5,3 +5,10 @@ tests/
 README.md
 Makefile
 docs/
+LICENSE
+.git
+.github
+.gitattributes
+.gitignore
+config.yaml
+logs/

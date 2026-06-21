@@ -1,0 +1,17 @@
+# This repo is consumed by Linux tooling (Docker image, gunicorn, the mailctl
+# CLI shebang). All text files MUST keep LF line endings regardless of the
+# committer's core.autocrlf setting — a CRLF in a shebang breaks the script
+# ("#!/usr/bin/env python3\r": no such file), and on WSL2 autocrlf will mangle
+# files on checkout without this.
+#
+# Catch-all first: every text file is LF. `text=auto` leaves real binaries alone.
+* text=auto eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.ini   text eol=lf
+*.cfg   text eol=lf
+Dockerfile text eol=lf
+Makefile   text eol=lf

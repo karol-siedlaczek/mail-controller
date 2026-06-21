@@ -2,5 +2,16 @@
 .pytest_cache/
 __pycache__/
 *.pyc
-# test venv
+*.egg-info/
+build/
+dist/
+
+# virtualenvs
+.venv/
 /tests/.venv/
+
+# logs + local secrets (never commit)
+logs/
+*.log
+config.yaml
+.envrc

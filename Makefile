@@ -1,5 +1,5 @@
 # mail-admin image — build & test entrypoints.
-# Run from anywhere: `make -C images/mail-admin <target>`.
+# Run from the repo root: `make <target>`.
 IMAGE        ?= mail-admin:test
 IMAGE_DIR    := $(CURDIR)
 TESTS_DIR    := $(IMAGE_DIR)/tests

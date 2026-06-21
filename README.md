@@ -288,35 +288,36 @@ mailctl domain list -f json
 ## Build & test
 
 ```bash
-make -C images/mail-admin build   # build Docker image
-make -C images/mail-admin test    # run unit tests (pytest)
-make -C images/mail-admin itest   # run integration tests (postgres:16 + compose)
-make -C images/mail-admin lint    # ruff + mypy
+make build   # build Docker image (mail-admin:test)
+make test    # run unit tests (pytest, no docker)
+make itest   # run integration tests (postgres:16 + compose)
+make lint    # docker compose config + py_compile
 ```
 
-Tests live in `images/mail-admin/tests/`.
+Tests live in `tests/`. The integration stack applies a vendored copy of the
+mail-server schema (`tests/schema.sql`) — see [Database role](#database-role).
 
 ## CI / publishing
 
-No workflow changes required. Push a `mail-admin/vX.Y.Z` tag to trigger the
-existing pipeline:
+The GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and
+pushes on a `vX.Y.Z` tag:
 
 ```bash
-git tag mail-admin/v0.1.0
-git push origin mail-admin/v0.1.0
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
-The pipeline builds a multi-arch (`linux/amd64`, `linux/arm64`) image and pushes
-the following tags to `registry.siedlaczek.com.pl`:
+It builds a multi-arch (`linux/amd64`, `linux/arm64`) image and pushes the
+following tags to `registry.siedlaczek.com.pl`:
 
 - `mail-admin:<version>` (e.g. `mail-admin:0.1.0`)
 - `mail-admin:<major.minor>` (e.g. `mail-admin:0.1`)
 - `mail-admin:latest`
 - `mail-admin:<short-sha>`
 
-No build variants. To rebuild an existing tag, move and force-push it:
+To rebuild an existing tag, move and force-push it:
 
 ```bash
-git tag -f mail-admin/v0.1.0
-git push -f origin mail-admin/v0.1.0
+git tag -f v0.1.0
+git push -f origin v0.1.0
 ```
