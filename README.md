@@ -14,7 +14,7 @@ never touches the mail daemons, the mail store, or the DKIM key files.
 
 ## Quick start
 
-Generate a shared HMAC key (keep it secret; you will reuse it everywhere):
+Generate a shared HMAC key (keep it secret, you will reuse it everywhere):
 
 ```bash
 export HMAC_KEY_B64="$(openssl rand -base64 32)"
