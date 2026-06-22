@@ -1,6 +1,6 @@
 import os
-from mail_admin.app import create_app
-from mail_admin.validation.require import Require
+from mail_controller.app import create_app
+from mail_controller.validation.require import Require
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 bind_ip = os.getenv("GUNICORN_BIND_IP")

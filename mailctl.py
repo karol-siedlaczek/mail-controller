@@ -25,7 +25,7 @@ ENV_VAR_LOG_LEVEL = "MAILADMIN_LOG_LEVEL"
 SETTINGS_FILE = Path("~/.mailctl").expanduser()
 LOGGER = logging.getLogger("mailctl-cli")
 
-app = typer.Typer(add_completion=True, help="CLI for managing mailboxes via Mail Admin")
+app = typer.Typer(add_completion=True, help="CLI for managing mailboxes via Mail controller")
 domain_app = typer.Typer(help="Manage domains")
 user_app = typer.Typer(help="Manage mailboxes")
 forward_app = typer.Typer(help="Manage forwardings")

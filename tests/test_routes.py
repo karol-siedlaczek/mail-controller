@@ -74,7 +74,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("TOKEN_ADMIN_HMAC", _hmac_hex("adm"))
     monkeypatch.setenv("TOKEN_RO_HMAC", _hmac_hex("ro"))
 
-    from mail_admin.app import create_app
+    from mail_controller.app import create_app
     app = create_app(database=FakeDB())
     app.testing = True
     return app.test_client()
@@ -91,7 +91,7 @@ def test_ping(client):
 def test_version_unauthenticated(client):
     r = client.get("/api/version")
     assert r.status_code == 200
-    assert r.get_json()["data"]["name"] == "Mail Admin"
+    assert r.get_json()["data"]["name"] == "Mail controller"
 
 
 def test_list_domains_requires_auth(client):

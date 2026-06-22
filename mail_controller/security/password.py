@@ -1,7 +1,7 @@
 import bcrypt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 SUPPORTED_SCHEMES = ("ARGON2ID", "BLF-CRYPT")
 _ARGON2_PREFIX = "{ARGON2ID}"

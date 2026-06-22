@@ -1,18 +1,18 @@
 import os
 import platform
 from flask import Blueprint, Response
-from mail_admin.api.context import Context
-from mail_admin.api.helpers import build_response
-from mail_admin.api.validators import (
+from mail_controller.api.context import Context
+from mail_controller.api.helpers import build_response
+from mail_controller.api.validators import (
     query_str, query_int, json_body, json_body_field,
 )
-from mail_admin.conf.config import Config
-from mail_admin.db.pool import Database
-from mail_admin.db import repository as repo
-from mail_admin.domain.permission import PermissionAction
-from mail_admin.domain.address import normalize_email, normalize_domain, domain_of
-from mail_admin.security.password import hash_password
-from mail_admin.exception.api_exceptions import ResourceNotFoundError, InvalidRequestError
+from mail_controller.conf.config import Config
+from mail_controller.db.pool import Database
+from mail_controller.db import repository as repo
+from mail_controller.domain.permission import PermissionAction
+from mail_controller.domain.address import normalize_email, normalize_domain, domain_of
+from mail_controller.security.password import hash_password
+from mail_controller.exception.api_exceptions import ResourceNotFoundError, InvalidRequestError
 
 api = Blueprint("api", __name__)
 
@@ -29,7 +29,7 @@ def ping() -> str:
 @api.route("/api/version", methods=["GET"])
 def version() -> Response:
     return build_response(200, data={
-        "name": "Mail Admin",
+        "name": "Mail controller",
         "author": "karol@siedlaczek.com.pl",
         "app": os.environ.get("APP_VERSION", "unknown"),
         "python": platform.python_version(),

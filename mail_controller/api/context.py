@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from mail_admin.domain.identity import Identity
-from mail_admin.domain.permission import PermissionAction
-from mail_admin.domain.address import domain_of
-from mail_admin.api.helpers import require_auth, get_remote_ip
-from mail_admin.exception.api_exceptions import PermissionDeniedError, InvalidRequestError
+from mail_controller.domain.identity import Identity
+from mail_controller.domain.permission import PermissionAction
+from mail_controller.domain.address import domain_of
+from mail_controller.api.helpers import require_auth, get_remote_ip
+from mail_controller.exception.api_exceptions import PermissionDeniedError, InvalidRequestError
 
 
 @dataclass(frozen=True)

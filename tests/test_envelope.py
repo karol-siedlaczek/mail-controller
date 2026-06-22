@@ -1,5 +1,5 @@
 from flask import Flask
-from mail_admin.api.helpers import build_response
+from mail_controller.api.helpers import build_response
 
 app = Flask(__name__)
 

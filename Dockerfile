@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY mail_admin ./mail_admin
+COPY mail_controller ./mail_controller
 COPY wsgi.py gunicorn.conf.py mailctl.py ./
 
 EXPOSE 8080

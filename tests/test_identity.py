@@ -2,9 +2,9 @@ import os
 import hmac
 import hashlib
 import pytest
-from mail_admin.domain.identity import Identity
-from mail_admin.domain.permission import PermissionAction
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.domain.identity import Identity
+from mail_controller.domain.permission import PermissionAction
+from mail_controller.exception.validator_exceptions import ValidationError
 
 KEY = b"0123456789abcdef0123456789abcdef"  # 32 bytes
 

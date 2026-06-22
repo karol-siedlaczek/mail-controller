@@ -3,11 +3,11 @@ import hmac
 import hashlib
 import pytest
 from flask import Flask
-from mail_admin.domain.identity import Identity
-from mail_admin.domain.permission import PermissionAction
-from mail_admin.api.context import Context
-from mail_admin.conf.config import Config
-from mail_admin.exception.api_exceptions import PermissionDeniedError
+from mail_controller.domain.identity import Identity
+from mail_controller.domain.permission import PermissionAction
+from mail_controller.api.context import Context
+from mail_controller.conf.config import Config
+from mail_controller.exception.api_exceptions import PermissionDeniedError
 
 RAW_KEY = b"0123456789abcdef0123456789abcdef"
 

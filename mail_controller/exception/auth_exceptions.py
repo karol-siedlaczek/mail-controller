@@ -1,4 +1,4 @@
-from mail_admin.exception.api_exceptions import ApiError
+from mail_controller.exception.api_exceptions import ApiError
 
 
 class AuthException(ApiError):

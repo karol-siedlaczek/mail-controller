@@ -1,6 +1,6 @@
-# mail-admin image — build & test entrypoints.
+# mail-controller image — build & test entrypoints.
 # Run from the repo root: `make <target>`.
-IMAGE        ?= mail-admin:test
+IMAGE        ?= mail-controller:test
 IMAGE_DIR    := $(CURDIR)
 TESTS_DIR    := $(IMAGE_DIR)/tests
 COMPOSE_FILE := $(TESTS_DIR)/compose.test.yml
@@ -35,7 +35,7 @@ lint: venv
 	@echo "==> docker compose config"; \
 	docker compose -f $(COMPOSE_FILE) config >/dev/null && echo "  OK"
 	@echo "==> py_compile"; \
-	$(VENV)/bin/python -m py_compile mailctl.py wsgi.py gunicorn.conf.py $$(find mail_admin -name '*.py')
+	$(VENV)/bin/python -m py_compile mailctl.py wsgi.py gunicorn.conf.py $$(find mail_controller -name '*.py')
 	@echo "  OK"
 
 ## clean: tear down stack + scratch

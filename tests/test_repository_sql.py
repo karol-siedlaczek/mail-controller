@@ -1,6 +1,6 @@
 import pytest
-from mail_admin.db import repository as repo
-from mail_admin.exception.api_exceptions import UnprocessableError
+from mail_controller.db import repository as repo
+from mail_controller.exception.api_exceptions import UnprocessableError
 
 
 class FakeCursor:

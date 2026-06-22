@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import ClassVar, Any, cast
 from dataclasses import dataclass, field
 from flask import current_app as app, g
-from mail_admin.validation.require import Require
-from mail_admin.domain.identity import Identity
-from mail_admin.security.password import SUPPORTED_SCHEMES
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.validation.require import Require
+from mail_controller.domain.identity import Identity
+from mail_controller.security.password import SUPPORTED_SCHEMES
+from mail_controller.exception.validator_exceptions import ValidationError
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 import pytest
-from mail_admin.security.password import hash_password, verify_password, SUPPORTED_SCHEMES
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.security.password import hash_password, verify_password, SUPPORTED_SCHEMES
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 
 def test_argon2id_shape():

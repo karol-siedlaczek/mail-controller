@@ -1,323 +1,413 @@
-# mail-admin
+# Mail Controller
 
-A management companion for the `mail-server` image: a small Flask + gunicorn
-HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over the mail
-server's **external PostgreSQL** database — `domains`, `users`, `forwardings`,
-`sender_login_maps` — and read `audit_logs`. It is modelled on
-[cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API,
-Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
+A management companion for the `mail-server` image from the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
 
-`mail-admin` and `mail-server` are deliberately decoupled: their **only shared
-surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`)
-and the `{SCHEME}`-prefixed password format that Dovecot reads. `mail-admin`
-never touches the mail daemons, the mail store, or the DKIM key files.
+## Development
+### 1) Requirements
+- Python `3.12+`
+- A reachable PostgreSQL database with the `mail-server` schema applied and a login role holding `mail_admin_rw` (see [Database role](#database-role))
 
-## Quick start
-
-Generate a shared HMAC key (keep it secret, you will reuse it everywhere):
-
+### 2) Install dependencies
 ```bash
-export HMAC_KEY_B64="$(openssl rand -base64 32)"
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Generate the per-identity token HMAC for the `admin` identity using that **same** key:
-
+### 3) Environment configuration
+Minimal setup:
 ```bash
-python mailctl.py token gen-hmac --id admin --hmac-key-b64 "$HMAC_KEY_B64"
-# Follow the prompts; copy the TOKEN_ADMIN_HMAC=<hex> line from the output.
+export HMAC_KEY_B64="<HMAC_KEY>"      # Generate key using: openssl rand -base64 32
+export TOKEN_ADMIN_HMAC="<hex_hmac>"  # Per-identity token HMAC, see: python mailctl.py token gen-hmac
+export PG_HOST="127.0.0.1"
+export PG_DBNAME="mail"
+export PG_USER="mailadmin"
+export PG_PASSWORD="<password>"
 ```
 
-Run the API container, passing the same key and the token HMAC:
+For local development it is also recommended to change environments that point to files or directories, because default values are predefined for docker container, e. g.:
+```bash
+export CONF_FILE="$(pwd)/config.yaml"
+export LOGS_DIR="$(pwd)/logs"
+```
 
+### 4) Start the application
+```bash
+gunicorn wsgi:app -c gunicorn.conf.py
+```
+
+Quick test:
+```bash
+curl -s http://127.0.0.1:8080/ping
+```
+
+## Production
+### Docker (`docker run`)
+Build image:
+```bash
+docker build -t mail-controller:latest .
+```
+
+Run container:
 ```bash
 docker run -d \
-  -e HMAC_KEY_B64="$HMAC_KEY_B64" \
-  -e TOKEN_ADMIN_HMAC="<hex-from-gen-hmac>" \
-  -e PG_HOST=postgres \
-  -e PG_DBNAME=mail \
-  -e PG_USER=mailadmin \
-  -e PG_PASSWORD=<password> \
-  -v /path/to/config.yaml:/config/config.yaml:ro \
+  --name mail-controller \
   -p 8080:8080 \
-  registry.siedlaczek.com.pl/mail-admin:latest
+  -e HMAC_KEY_B64="<HMAC_KEY>" \
+  -e TOKEN_ADMIN_HMAC="<hex_hmac>" \
+  -e PG_HOST="postgres" \
+  -e PG_DBNAME="mail-server" \
+  -e PG_USER="mail-controller_user" \
+  -e PG_PASSWORD="<password>" \
+  -e CONF_FILE="/config/config.yaml" \
+  -e LOGS_DIR="/logs" \
+  -v "$(pwd)/config.yaml:/config/config.yaml:ro" \
+  -v "$(pwd)/logs:/logs" \
+  mail-controller:latest
 ```
 
-Or via Docker Compose alongside `mail-server`:
+Stop and remove:
+```bash
+docker stop mail-controller && docker rm mail-controller
+```
 
+### Docker Compose
+Example `compose.yml` (alongside `mail-server`):
 ```yaml
 services:
-  mail-admin:
-    image: registry.siedlaczek.com.pl/mail-admin:latest
+  mail-controller:
+    image: registry.siedlaczek.com.pl/mail-controller:latest
+    container_name: mail-controller
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      HMAC_KEY_B64: <base64-key>
-      TOKEN_ADMIN_HMAC: <hex-from-gen-hmac>
+      HMAC_KEY_B64: ${HMAC_KEY_B64}
+      TOKEN_ADMIN_HMAC: ${TOKEN_ADMIN_HMAC}
       PG_HOST: postgres
       PG_DBNAME: mail
-      PG_USER: mailadmin
-      PG_PASSWORD__FILE: /run/secrets/mailadmin_password
+      PG_USER: mail-controller_user
+      PG_PASSWORD__FILE: /run/secrets/mail-controller_password
       PASSWORD_SCHEME: ARGON2ID
     secrets:
-      - mailadmin_password
+      - mail-controller_password
     volumes:
       - ./config.yaml:/config/config.yaml:ro
+      - ./logs:/logs
 ```
 
+Set required environment:
+```bash
+export HMAC_KEY_B64="<HMAC_KEY>"
+export TOKEN_ADMIN_HMAC="<hex_hmac>"
+```
+
+Build and start:
+```bash
+docker compose up -d
+```
+
+Check logs:
+```bash
+docker compose logs -f mail-controller
+```
+
+Stop:
+```bash
+docker compose down
+```
+
+## Environments
+| Key | Type | Required | Default | Description |
+|:----|:-----|:---------|:--------|:------------|
+| `GUNICORN_BIND_IP` | `string` | :x: | `0.0.0.0` | Gunicorn bind IP |
+| `GUNICORN_BIND_PORT` | `number` | :x: | `8080` | Gunicorn bind port |
+| `GUNICORN_WORKERS` | `number` | :x: | `1` | Number of Gunicorn workers |
+| `GUNICORN_THREADS` | `number` | :x: | `4` | Threads per Gunicorn worker |
+| `GUNICORN_TIMEOUT` | `number` | :x: | `60` | Request timeout in seconds |
+| `LOG_LEVEL` | `string` | :x: | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `LOGS_DIR` | `string` | :x: | `/logs` | Application logs directory (`app.log`) |
+| `CONF_FILE` | `string` | :x: | `/config/config.yaml` | Path to YAML config with identities and settings |
+| `HMAC_KEY_B64` | `string` | :heavy_check_mark: | - | Base64 HMAC key (minimum 32 bytes after decoding), used to verify each identity's `TOKEN_<ID>_HMAC`. Generate: `openssl rand -base64 32` |
+| `TOKEN_<ID>_HMAC` | `string` | :x: | - | Token HMAC-SHA256 (hex) for identity `<ID>` from `config.yaml`. One variable per declared identity; not strictly required to start, but you want at least one identity |
+| `PG_HOST` | `string` | :heavy_check_mark: | - | External Postgres host |
+| `PG_PORT` | `number` | :x: | `5432` | Postgres port |
+| `PG_DBNAME` | `string` | :heavy_check_mark: | - | Postgres database name |
+| `PG_USER` | `string` | :heavy_check_mark: | - | Login role holding the `mail_admin_rw` group role (see [Database role](#database-role)) |
+| `PG_PASSWORD` | `string` | :x: | - | Password for `PG_USER` |
+| `PG_PASSWORD__FILE` | `string` | :x: | - | Path to a file containing the password for `PG_USER` (Docker secrets); alternative to `PG_PASSWORD` |
+| `PASSWORD_SCHEME` | `string` | :x: | `ARGON2ID` | Hashing scheme for new mailbox passwords (`ARGON2ID`, `BLF-CRYPT`) |
+
+`HMAC_KEY_B64`, `PG_HOST`, `PG_DBNAME`, and `PG_USER` are required; the container will refuse to start if they are absent.
+
 ## Configuration
+`CONF_FILE` is a YAML file defining the identities (`identities`) the API will accept.
 
-### Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `HMAC_KEY_B64` | — (required) | Base64-encoded key (≥32 bytes decoded). Verifies each identity's `TOKEN_<ID>_HMAC`. Generate: `openssl rand -base64 32`. |
-| `TOKEN_<ID>_HMAC` | — | Per-identity HMAC hex: `HMAC-SHA256(raw-token, key)`. One variable per identity declared in `config.yaml`. |
-| `CONF_FILE` | `/config/config.yaml` | Path to the identities + settings file (must be mounted). |
-| `PG_HOST` | — (required) | External Postgres host. |
-| `PG_PORT` | `5432` | Postgres port. |
-| `PG_DBNAME` | — (required) | Postgres database. |
-| `PG_USER` | — (required) | Login role with the `mail_admin_rw` group role (see Database role). |
-| `PG_PASSWORD` / `PG_PASSWORD__FILE` | — | Password for `PG_USER`. `PG_PASSWORD__FILE` is read from a file (Docker secrets). |
-| `PASSWORD_SCHEME` | `ARGON2ID` | Hashing scheme for new passwords. Supported: `ARGON2ID`, `BLF-CRYPT`. |
-| `LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
-| `LOGS_DIR` | `/logs` | Directory for log files. |
-
-`HMAC_KEY_B64`, `PG_HOST`, `PG_DBNAME`, and `PG_USER` are required; the
-container will refuse to start if they are absent.
-
-### config.yaml
-
-Mount a `config.yaml` at `CONF_FILE` (default `/config/config.yaml`) declaring
-the identities the API will accept. Each identity has an `id`, a list of
-allowed source CIDRs, and a list of `<domain-pattern>:<action>` permissions:
-
+Example:
 ```yaml
 identities:
-  - id: admin
-    allowed_cidrs: ["10.0.0.0/8", "127.0.0.1/32"]
-    permissions: ["*:write"]
-  - id: artform
-    allowed_cidrs: ["10.20.0.0/16"]
-    permissions: ["artformstudio.pl:write"]
+  - id: "admin"
+    allowed_cidrs:
+      - "10.0.0.0/8"
+      - "127.0.0.1/32"
+    permissions:
+      - "*:write"
+  - id: "example"
+    allowed_cidrs:
+      - "10.20.0.0/16"
+    permissions:
+      - "example.com:write"
+      - "*.example.com:read"
+  - id: "reader"
+    allowed_cidrs:
+      - "0.0.0.0/0"
+    permissions:
+      - "*:read"
+```
+
+### Field meanings
+
+- `identities[].id` - identity identifier used in token format `Bearer <id>.<token>` (must match `^[A-Za-z_0-9]+$`).
+- `identities[].allowed_cidrs` - CIDR list allowed to make requests for this identity (IPv4 or IPv6).
+- `identities[].permissions` - permission entries in `"<scope>:<action>"` format, where:
+  - `scope` - `*` (full admin) or a domain glob matched case-insensitively (`fnmatch`), e. g. `example.com`, `*.example.com`.
+  - `action` - `read`, `write` (implies `read`), or `*`.
+
+If you have identities such as `admin` and `example`, you must provide following environments:
+```ini
+TOKEN_ADMIN_HMAC="<hex_hmac>"
+TOKEN_EXAMPLE_HMAC="<hex_hmac>"
+```
+
+### How to generate `HMAC_KEY_B64`
+```bash
+openssl rand -base64 32
+```
+
+### How to generate `TOKEN_<ID>_HMAC`
+Use the built-in CLI command:
+```bash
+# Variables can be provided by flags (use --help to show) or by prompt if any required variable is missing
+python mailctl.py token gen-hmac --id admin --hmac-key-b64 "$HMAC_KEY_B64"
+```
+
+CLI will print a ready-to-use value:
+```ini
+TOKEN_ADMIN_HMAC=<hex_hmac>
 ```
 
 ## Database role
-
-`mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail_admin_rw`
-with full CRUD on the four management tables and SELECT on `audit_logs`:
+`mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail_admin` with full CRUD on the four management tables and SELECT on `audit_logs`:
 
 ```sql
--- created by sql/schema.sql (excerpt):
-CREATE ROLE mail_admin_rw NOLOGIN;
+CREATE ROLE 'mail_admin' NOLOGIN;
 GRANT SELECT, INSERT, UPDATE, DELETE
-  ON domains, users, forwardings, sender_login_maps TO mail_admin_rw;
-GRANT SELECT ON audit_logs TO mail_admin_rw;
+  ON domains, users, forwardings, sender_login_maps TO 'mail_admin';
+GRANT SELECT ON audit_logs TO 'mail_admin';
 GRANT USAGE, SELECT ON SEQUENCE
   domains_id_seq, users_id_seq, forwardings_id_seq, sender_login_maps_id_seq
-  TO mail_admin_rw;
+  TO 'mail_admin';
 ```
 
-After applying the schema, the operator creates a login role and grants it the
-group:
+After applying the schema, the operator creates a login role and grants it the group:
 
 ```sql
-CREATE ROLE mailadmin LOGIN PASSWORD '...';
-GRANT mail_admin_rw TO mailadmin;
+CREATE ROLE mail_admin LOGIN PASSWORD '...';
+GRANT 'mail-server-rw_user' TO mail_admin;
 ```
 
-Set `PG_USER=mailadmin` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
+Set `PG_USER=mail-server-rw_user` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
 
-## Authentication & authorization
-
-**Token format:** `Authorization: Bearer <id>.<token>`
+## API
+Required authorization header:
+```http
+Authorization: Bearer <identity_id>.<token_raw>
+```
 
 A request authenticates when:
-1. `<id>` resolves to an identity declared in `config.yaml`.
-2. `HMAC-SHA256(token, key) == TOKEN_<ID>_HMAC` (where `key` is the decoded
-   `HMAC_KEY_B64`).
+1. `<identity_id>` resolves to an identity declared in `config.yaml`.
+2. `HMAC-SHA256(token_raw, key) == TOKEN_<ID>_HMAC` (where `key` is the decoded `HMAC_KEY_B64`).
 3. The source IP is inside one of the identity's `allowed_cidrs`.
 
-**Permissions** are `<domain-pattern>:<action>`, where `action` is `read` or
-`write`. `write` implies create/update/delete and also implies `read`. The
-pattern may be `*` (full admin) or a glob like `*.example.com`.
+Every request resolves to a **target domain** (the domain of the resource) and is authorized against the identity's permissions: `write` implies create/update/delete and also implies `read`.
 
-Every request resolves to a **target domain** and is checked against the
-identity's permissions:
+Endpoints:
+| Method | Endpoint | Auth required | Body | Query params | Description |
+|:-------|:---------|:--------------|:-----|:-------------|:------------|
+| `GET` | `/ping` | :x: | - | - | Liveness probe; returns `pong` |
+| `GET` | `/api/version` | :x: | - | - | Returns app metadata (name, author, app version, Python version). |
+| `GET` | `/api/token/identity` | :heavy_check_mark: | - | - | Current identity: id, allowed CIDRs and permissions |
+| `GET` | `/api/token/scope` | :heavy_check_mark: | - | - | Permission list for the current identity |
+| `GET` | `/api/domains` | :heavy_check_mark: | - | - | List domains (filtered to those the identity can read) |
+| `POST` | `/api/domains` | :heavy_check_mark: | `{domain, dkim_selector?, active?}` | - | Create a domain (→ `201`) |
+| `GET` | `/api/domains/<domain>` | :heavy_check_mark: | - | - | Get a single domain |
+| `PATCH` | `/api/domains/<domain>` | :heavy_check_mark: | `{dkim_selector?, active?}` | - | Update a domain's DKIM selector and/or active flag |
+| `DELETE` | `/api/domains/<domain>` | :heavy_check_mark: | - | - | Delete a domain |
+| `GET` | `/api/users` | :heavy_check_mark: | - | `domain` | List mailboxes (optionally filtered by domain) |
+| `POST` | `/api/users` | :heavy_check_mark: | `{email, password, quota_bytes?, active?}` | - | Create a mailbox (password hashed server-side, → `201`) |
+| `GET` | `/api/users/<email>` | :heavy_check_mark: | - | - | Get a single mailbox |
+| `PATCH` | `/api/users/<email>` | :heavy_check_mark: | `{quota_bytes?, active?}` | - | Update a mailbox's quota and/or active flag |
+| `POST` | `/api/users/<email>/password` | :heavy_check_mark: | `{password}` | - | Set/reset a mailbox password |
+| `DELETE` | `/api/users/<email>` | :heavy_check_mark: | - | - | Delete a mailbox |
+| `GET` | `/api/forwardings` | :heavy_check_mark: | - | `source`, `domain` | List forwardings (optionally filtered by source/domain) |
+| `POST` | `/api/forwardings` | :heavy_check_mark: | `{source, destination, keep_copy?}` | - | Create a forwarding from `source` to `destination` (→ `201`) |
+| `DELETE` | `/api/forwardings/<id>` | :heavy_check_mark: | - | - | Delete a forwarding by id |
+| `GET` | `/api/sender-logins` | :heavy_check_mark: | - | `domain` | List send-as grants (optionally filtered by domain) |
+| `POST` | `/api/sender-logins` | :heavy_check_mark: | `{login_email, allowed_sender}` | - | Grant `login_email` permission to send as `allowed_sender` (→ `201`) |
+| `DELETE` | `/api/sender-logins/<id>` | :heavy_check_mark: | - | - | Revoke a send-as grant by id |
+| `GET` | `/api/audit` | :heavy_check_mark: | - | `login`, `event_type`, `since`, `limit` | Read the audit log (filtered to readable rows) |
 
-| Resource | Domain resolved |
-|----------|----------------|
-| domain `d` | `d` |
-| user `local@d` | `d` |
-| forwarding (source `s@d`) | `d` (source domain) |
-| sender_login (`allowed_sender a@d`) | `d` |
-| audit row | domain of its `login` (rows with no domain require `*:read`) |
+Notes:
+- `password` is hashed server-side and never returned; the password hash is never included in any user response.
+- `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read`.
+- **Error responses** follow the standard envelope: `{method, http_code, http_status, path, message, detail, data, timestamp}`. Schema violations and missing-domain FK surface as `422`, UNIQUE conflicts as `409`, missing resources as `404`, auth failures as `401`/`403`.
 
-## API surface
-
-Base URL: `http://<host>:8080`
-
-### Unauthenticated
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/ping` | Liveness probe; returns `pong`. |
-| `GET` | `/api/version` | Name, version, Python version. |
-
-### Token introspection (authenticated)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/token/identity` | Current identity: id, allowed CIDRs, permissions. |
-| `GET` | `/api/token/scope` | Permissions list for the current identity. |
-
-### Domains
-
-| Method | Path | Body / query | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/api/domains` | — | List domains (filtered to readable). |
-| `POST` | `/api/domains` | `{domain, dkim_selector?, active?}` | Create a domain. Returns 201. |
-| `GET` | `/api/domains/<domain>` | — | Get a domain. |
-| `PATCH` | `/api/domains/<domain>` | `{dkim_selector?, active?}` | Update dkim_selector / active. |
-| `DELETE` | `/api/domains/<domain>` | — | Delete a domain. |
-
-### Users (mailboxes)
-
-| Method | Path | Body / query | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/api/users` | `?domain=` | List mailboxes (filtered to readable). |
-| `POST` | `/api/users` | `{email, password, quota_bytes?, active?}` | Create a mailbox. Password is hashed server-side and never returned. Returns 201. |
-| `GET` | `/api/users/<email>` | — | Get a mailbox (password hash is never returned). |
-| `PATCH` | `/api/users/<email>` | `{quota_bytes?, active?}` | Update quota / active. |
-| `POST` | `/api/users/<email>/password` | `{password}` | Set / reset a password. |
-| `DELETE` | `/api/users/<email>` | — | Delete a mailbox. |
-
-### Forwardings
-
-| Method | Path | Body / query | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/api/forwardings` | `?source=&domain=` | List forwardings (filtered to readable). |
-| `POST` | `/api/forwardings` | `{source, destination, keep_copy?}` | Create a forwarding. Returns 201. |
-| `DELETE` | `/api/forwardings/<id>` | — | Delete a forwarding by integer id. |
-
-### Sender-logins (send-as grants)
-
-| Method | Path | Body / query | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/api/sender-logins` | `?domain=` | List send-as grants (filtered to readable). |
-| `POST` | `/api/sender-logins` | `{login_email, allowed_sender}` | Grant: `login_email` may send as `allowed_sender`. Returns 201. |
-| `DELETE` | `/api/sender-logins/<id>` | — | Revoke a grant by integer id. |
-
-### Audit log
-
-| Method | Path | Body / query | Description |
-|--------|------|-------------|-------------|
-| `GET` | `/api/audit` | `?login=&event_type=&since=&limit=` | Read audit log (filtered to readable; default limit 100, max 1000). |
-
-**Error responses** follow the standard envelope:
-`{msg, detail, code, timestamp}`. Schema violations surface as `422`, UNIQUE
-conflicts as `409 Conflict`, missing domain FK as `422`, missing resources as
-`404`, auth failures as `401`/`403`.
-
-## CLI (`mailctl`)
-
-`mailctl` is a Typer + Rich thin client over the API. It ships inside the image
-at `/app/mailctl.py` and can also be run standalone (only needs `requests`,
-`typer`, `rich`).
-
-### Command tree
-
-```
-mailctl [--api-url URL] [--token TOKEN] [--log-file FILE] [--log-level LEVEL]
-  domain  list|add|show|set|rm
-  user    list|add|show|passwd|set|rm
-  forward list|add|rm
-  sendas  list|grant|revoke
-  audit   [--login LOGIN] [--type EVENT_TYPE] [--since SINCE] [--limit N]
-  token   identity|scope|gen-hmac
-  version
-```
-
-(Per-subcommand output options: `-f/--format` for output format, `-c/--column` for column selection.)
-
-### Settings resolution
-
-Settings are resolved in this order (highest priority first):
-
-1. CLI flags (`--api-url`, `--token`, `--log-file`, `--log-level`).
-2. Environment variables: `MAILADMIN_API_URL`, `MAILADMIN_TOKEN`,
-   `MAILADMIN_LOG_FILE`, `MAILADMIN_LOG_LEVEL`.
-3. `~/.mailctl` file (must have mode **600**). Key-value format:
-
-```ini
-API_URL=http://mail-admin.internal:8080
-TOKEN=admin.my-secret-token
-LOG_FILE=/var/log/mailctl.log
-LOG_LEVEL=INFO
-```
-
-Output formats via `-f`: `table` (default), `json`, `kv`, `value`.
-Column selection via `-c`/`--column` (repeatable).
-Passwords are never echoed; they are read via a confirm prompt when omitted.
-
-### Example session
-
+Examples:
 ```bash
+curl -s \
+  -H "Authorization: Bearer admin.my-raw-token" \
+  "http://127.0.0.1:8080/api/domains"
+
+curl -s \
+  -X POST \
+  -H "Authorization: Bearer admin.my-raw-token" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "artformstudio.pl", "dkim_selector": "default"}' \
+  "http://127.0.0.1:8080/api/domains"
+```
+
+## CLI (`mailctl.py`)
+`mailctl` is a Typer + Rich thin client over the API. It ships inside the image at `/app/mailctl.py` and can also be run standalone (needs `requests`, `typer`, `rich`).
+
+Command tree:
+```text
+mailctl
+├── version                         Show app/CLI versions and author
+├── token                           Manage token identity
+│   ├── identity                    Show current identity (allowed CIDRs, permissions)
+│   ├── scope                       List permissions for the current identity
+│   └── gen-hmac                    Generate a TOKEN_<ID>_HMAC value for server configuration
+├── domain                          Manage domains
+│   ├── list                        List domains readable by the current identity
+│   ├── add                         Create a domain
+│   ├── show                        Show a single domain
+│   ├── set                         Update a domain's DKIM selector and/or active flag
+│   └── rm                          Delete a domain
+├── user                            Manage mailboxes
+│   ├── list                        List mailboxes (optionally filtered by domain)
+│   ├── add                         Create a mailbox (password prompted if omitted)
+│   ├── show                        Show a single mailbox
+│   ├── passwd                      Set/reset a mailbox password
+│   ├── set                         Update a mailbox's quota and/or active flag
+│   └── rm                          Delete a mailbox
+├── forward                         Manage forwardings
+│   ├── list                        List forwardings (optionally filtered by source/domain)
+│   ├── add                         Create a forwarding from source to destination
+│   └── rm                          Delete a forwarding by id
+├── sendas                          Manage send-as grants
+│   ├── list                        List send-as grants (optionally filtered by domain)
+│   ├── grant                       Grant a login the right to send as another address
+│   └── revoke                      Revoke a send-as grant by id
+└── audit                           Read the audit log (optionally filtered)
+```
+Run `mailctl --help`, or `mailctl <group> --help` / `mailctl <group> <command> --help`, to see all options for each command.
+
+Each subcommand accepts `-t/--timeout` (default `10`), `-f/--format` (`table` (default), `json`, `kv`, `value`) and `-c/--column` (repeatable). Passwords are never echoed; they are read via a confirm prompt when omitted.
+
+Example usage:
+```bash
+export MAILCTL_API_URL="http://127.0.0.1:8080"
+export MAILCTL_TOKEN="admin.my-raw-token"
+
 # Add a domain
-mailctl domain add artformstudio.pl --dkim-selector default
+mailctl domain add example.com --dkim-selector default
 
 # Create a mailbox (password prompted)
-mailctl user add info@artformstudio.pl
+mailctl user add info@example.com
 
 # Forward mail, keeping a local copy
-mailctl forward add newsletter@artformstudio.pl archive@example.com --keep-copy
+mailctl forward add info@example.com example@gmail.com --keep-copy
 
 # Grant send-as
-mailctl sendas grant info@artformstudio.pl noreply@artformstudio.pl
-
-# Generate a TOKEN_<ID>_HMAC line for a new identity
-mailctl token gen-hmac --id artform --hmac-key-b64 "$(openssl rand -base64 32)"
+mailctl sendas grant info@example.com noreply@example.com
 
 # Read the last 20 audit entries for a login
-mailctl audit --login info@artformstudio.pl --limit 20
+mailctl audit --login info@example.com --limit 20
 
 # JSON output
 mailctl domain list -f json
 ```
 
+Settings are resolved in this order (highest priority first):
+
+1. CLI flags (`--api-url`, `--token`, `--log-file`, `--log-level`).
+2. Environment variables: `MAILADMIN_API_URL`, `MAILADMIN_TOKEN`, `MAILADMIN_LOG_FILE`, `MAILADMIN_LOG_LEVEL`.
+3. `~/.mailctl` file (must have `600` permissions, `chmod 600 ~/.mailctl`):
+
+```ini
+API_URL=http://127.0.0.1:8080
+TOKEN=admin.my-secret-token
+LOG_FILE=/var/log/mailctl.log
+LOG_LEVEL=INFO
+```
+
 ## Build & test
+A `Makefile` wraps the common build and test entrypoints. Run them from the repo root with `make <target>`:
 
+| Target | Description |
+|:-------|:------------|
+| `make build` | Build the Docker image (tagged `mail-controller:test` by default) |
+| `make venv` | Create the test virtualenv in `tests/.venv` and install `tests/requirements.txt` (other targets depend on it) |
+| `make test` | Run the unit tests (`pytest`, no Docker) — everything not marked `integration` |
+| `make itest` | Run the integration tests: build the image, bring up the compose stack (`tests/compose.test.yml` with `postgres:16`), run the `integration` tests, then tear the stack down |
+| `make lint` | Validate `docker compose config` and `py_compile` of `mailctl.py`, `wsgi.py`, `gunicorn.conf.py` and the `mail_controller` package |
+| `make clean` | Tear down the compose stack and remove the virtualenv and pytest cache |
+
+`IMAGE`, `PYTEST` and `PYTEST_FLAGS` can be overridden on the command line, e. g. `make build IMAGE=mail-controller:dev`. The integration tests apply a vendored copy of the `mail-server` schema (`tests/schema.sql`, which declares the `mail_admin_rw` role — see [Database role](#database-role)).
+
+## Recommendations
+- Store `HMAC_KEY_B64` and all `TOKEN_<ID>_HMAC` values in a secret manager.
+- Restrict `allowed_cidrs` to trusted source networks.
+- Use `PG_PASSWORD__FILE` (Docker secrets) instead of `PG_PASSWORD` in production.
+- Keep `CONF_FILE` and `LOGS_DIR` on persistent storage.
+- Put a reverse proxy (Nginx/HAProxy) in front of the app (the app trusts `X-Forwarded-*` for one proxy).
+- Validate config before restart:
 ```bash
-make build   # build Docker image (mail-admin:test)
-make test    # run unit tests (pytest, no docker)
-make itest   # run integration tests (postgres:16 + compose)
-make lint    # docker compose config + py_compile
+gunicorn wsgi:app --check-config
 ```
 
-Tests live in `tests/`. The integration stack applies a vendored copy of the
-mail-server schema (`tests/schema.sql`) — see [Database role](#database-role).
+## Notes
+- Application logs are written to `${LOGS_DIR}/app.log`; gunicorn access and error logs go to stdout/stderr.
+- This project manages the `mail-server` image maintained in the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. `mail-controller` and `mail-server` are deliberately decoupled: their **only shared surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`) and the `{SCHEME}`-prefixed password format Dovecot reads. `mail-controller` never touches the mail daemons, the mail store, or the DKIM key files.
 
-## CI / publishing
+## Publishing Docker image
 
-The GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and
-pushes on a `vX.Y.Z` tag:
+The CI/CD pipeline (`.github/workflows/docker-publish.yml`) builds and pushes the Docker image only when a git tag matching `v*` is pushed.
 
+Push without tag (no image build):
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git add .
+git commit -m "your message"
+git push origin main
 ```
 
-It builds a multi-arch (`linux/amd64`, `linux/arm64`) image and pushes the
-following tags to `registry.siedlaczek.com.pl`:
+Push with tag (triggers image build and push):
+```bash
+git add .
+git commit -m "your message"
+git push origin main
+git tag v1.0.1
+git push origin v1.0.1
+```
 
-- `mail-admin:<version>` (e.g. `mail-admin:0.1.0`)
-- `mail-admin:<major.minor>` (e.g. `mail-admin:0.1`)
-- `mail-admin:latest`
-- `mail-admin:<short-sha>`
+It builds a multi-arch (`linux/amd64`, `linux/arm64`) image and pushes the following tags to `registry.siedlaczek.com.pl`:
+- `mail-controller:1.0.1`
+- `mail-controller:1.0`
+- `mail-controller:latest`
+- `mail-controller:<short-sha>`
 
 To rebuild an existing tag, move and force-push it:
-
 ```bash
-git tag -f v0.1.0
-git push -f origin v0.1.0
+git tag -f v1.0.1
+git push -f origin v1.0.1
 ```

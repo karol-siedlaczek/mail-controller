@@ -4,7 +4,7 @@ import base64
 import binascii
 import ipaddress
 import importlib.util
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.exception.validator_exceptions import ValidationError
 from pathlib import Path
 from typing import Any, Match, Type, TypeVar, Pattern, Iterable
 

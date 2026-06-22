@@ -5,8 +5,8 @@ import logging
 from hashlib import sha256
 from dataclasses import dataclass
 from typing import Any
-from mail_admin.domain.permission import Permission, PermissionAction
-from mail_admin.validation.require import Require
+from mail_controller.domain.permission import Permission, PermissionAction
+from mail_controller.validation.require import Require
 
 log = logging.getLogger(__name__)
 

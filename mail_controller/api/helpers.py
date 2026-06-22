@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from typing import Any
 from http import HTTPStatus
 from flask import Response, jsonify, request
-from mail_admin.domain.identity import Identity
-from mail_admin.conf.config import Config
-from mail_admin.exception.auth_exceptions import (
+from mail_controller.domain.identity import Identity
+from mail_controller.conf.config import Config
+from mail_controller.exception.auth_exceptions import (
     AuthTokenMissingException, AuthFailedException, AuthIpNotAllowedException,
 )
 

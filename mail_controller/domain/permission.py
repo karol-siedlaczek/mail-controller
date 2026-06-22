@@ -2,7 +2,7 @@ import re
 import fnmatch
 from enum import Enum
 from dataclasses import dataclass
-from mail_admin.validation.require import Require
+from mail_controller.validation.require import Require
 
 
 class PermissionAction(Enum):

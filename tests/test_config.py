@@ -4,8 +4,8 @@ import hmac
 import hashlib
 import textwrap
 import pytest
-from mail_admin.conf.config import Config
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.conf.config import Config
+from mail_controller.exception.validator_exceptions import ValidationError
 
 RAW_KEY = b"0123456789abcdef0123456789abcdef"
 KEY_B64 = base64.b64encode(RAW_KEY).decode()

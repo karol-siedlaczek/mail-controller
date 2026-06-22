@@ -1,8 +1,8 @@
-"""All SQL for mail-admin. Fully parameterized; no f-string interpolation of
+"""All SQL for mail-controller. Fully parameterized; no f-string interpolation of
 user data. Reads/writes the mail-server schema via the mail_admin_rw role."""
 import psycopg2
 from psycopg2 import errors
-from mail_admin.exception.api_exceptions import ConflictError, UnprocessableError
+from mail_controller.exception.api_exceptions import ConflictError, UnprocessableError
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"

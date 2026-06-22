@@ -1,6 +1,6 @@
-from mail_admin.validation.require import Require
-from mail_admin.exception.validator_exceptions import ValidationError
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.validation.require import Require
+from mail_controller.exception.validator_exceptions import ValidationError
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 
 def normalize_email(email: str) -> str:

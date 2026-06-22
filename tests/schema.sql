@@ -99,7 +99,7 @@ GRANT SELECT ON domains, users, forwardings, sender_login_maps TO mail_ro;
 GRANT INSERT ON audit_logs TO mail_audit;
 GRANT USAGE, SELECT ON SEQUENCE audit_logs_id_seq TO mail_audit;
 
--- mail_admin_rw: read-write management role used by the mail-admin image.
+-- mail_admin_rw: read-write management role used by the mail-controller image.
 -- NOLOGIN group role; the operator GRANTs it to the actual PG_USER login role.
 DO $$
 BEGIN

@@ -48,7 +48,7 @@ def _wait_http(url, timeout=120):
 @pytest.fixture(scope="session")
 def stack():
     # Build the image, then bring the stack up with computed HMAC env overrides.
-    subprocess.run(["docker", "build", "-t", "mail-admin:test", os.path.dirname(HERE)], check=True)
+    subprocess.run(["docker", "build", "-t", "mail-controller:test", os.path.dirname(HERE)], check=True)
     env = {
         "TOKEN_ADMIN_HMAC": _hmac_hex(TOKENS["admin"]),
         "TOKEN_ARTFORM_HMAC": _hmac_hex(TOKENS["artform"]),

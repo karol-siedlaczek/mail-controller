@@ -1,6 +1,6 @@
 from flask import request
 from typing import Any, Callable, TypeVar
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 T = TypeVar("T")
 

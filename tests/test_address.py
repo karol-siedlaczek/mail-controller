@@ -1,6 +1,6 @@
 import pytest
-from mail_admin.domain.address import domain_of, normalize_email, normalize_domain
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.domain.address import domain_of, normalize_email, normalize_domain
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 
 def test_domain_of():

@@ -1,7 +1,7 @@
 import pytest
 from flask import Flask
-from mail_admin.api import validators as v
-from mail_admin.exception.api_exceptions import InvalidRequestError
+from mail_controller.api import validators as v
+from mail_controller.exception.api_exceptions import InvalidRequestError
 
 app = Flask(__name__)
 

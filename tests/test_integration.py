@@ -18,7 +18,7 @@ def test_unauthenticated_rejected(stack):
 def test_ping_and_version(stack):
     assert requests.get(f"{stack}/ping").text == "pong"
     v = requests.get(f"{stack}/api/version").json()
-    assert v["data"]["name"] == "Mail Admin"
+    assert v["data"]["name"] == "Mail controller"
 
 
 def test_full_crud_flow(stack):

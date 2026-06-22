@@ -1,6 +1,6 @@
 import pytest
-from mail_admin.domain.permission import Permission, PermissionAction
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.domain.permission import Permission, PermissionAction
+from mail_controller.exception.validator_exceptions import ValidationError
 
 
 def p(s):

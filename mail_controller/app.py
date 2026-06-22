@@ -3,13 +3,13 @@ import logging
 from pathlib import Path
 from flask import Flask, Response
 from werkzeug.exceptions import MethodNotAllowed, NotFound
-from mail_admin.conf.config import Config
-from mail_admin.db.pool import Database
-from mail_admin.api.routes import api as api_blueprint
-from mail_admin.api.helpers import build_response, log_request
-from mail_admin.exception.auth_exceptions import AuthException, AuthFailedException
-from mail_admin.exception.api_exceptions import ApiError
-from mail_admin.exception.validator_exceptions import ValidationError
+from mail_controller.conf.config import Config
+from mail_controller.db.pool import Database
+from mail_controller.api.routes import api as api_blueprint
+from mail_controller.api.helpers import build_response, log_request
+from mail_controller.exception.auth_exceptions import AuthException, AuthFailedException
+from mail_controller.exception.api_exceptions import ApiError
+from mail_controller.exception.validator_exceptions import ValidationError
 
 
 def create_app(database: Database | None = None) -> Flask:

@@ -41,7 +41,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/mail-admin
+          images: ${{ env.REGISTRY }}/mail-controller
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest

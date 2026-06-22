@@ -2,7 +2,7 @@ import importlib.util
 import pytest
 from pathlib import Path
 
-# Load mailctl.py as a module (it lives at images/mail-admin/mailctl.py)
+# Load mailctl.py as a module (it lives at images/mail-controller/mailctl.py)
 _SPEC = importlib.util.spec_from_file_location(
     "mailctl", str(Path(__file__).resolve().parents[1] / "mailctl.py"))
 mailctl = importlib.util.module_from_spec(_SPEC)
