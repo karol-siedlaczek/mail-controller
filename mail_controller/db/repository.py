@@ -8,6 +8,7 @@ from mail_controller.domain.address import DomainName, EmailAddress
 from mail_controller.domain.mailbox import Mailbox
 from mail_controller.domain.forwarding import Forwarding
 from mail_controller.domain.sender_login import SenderLogin
+from mail_controller.domain.audit import AuditEntry
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"
@@ -205,7 +206,7 @@ def delete_sender_login(cur, sid: int) -> bool:
 
 
 # ── audit_logs (read-only) ───────────────────────────────────────────────────
-def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=100) -> list[dict]:
+def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=100) -> list[AuditEntry]:
     clauses, params = [], {"lim": limit}
     if login:
         clauses.append("login = %(login)s")
@@ -225,4 +226,4 @@ def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=1
         f'ORDER BY "timestamp" DESC LIMIT %(lim)s',
         params,
     )
-    return cur.fetchall()
+    return [AuditEntry.from_row(r) for r in cur.fetchall()]

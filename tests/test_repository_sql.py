@@ -288,3 +288,17 @@ def test_create_sender_login_binds_values_and_returns_entity():
     result = repo.create_sender_login(cur, grant)
     assert "ops@example.com" in cur.all_sql_params()
     assert result == SenderLogin.from_row(_SLM_ROW)
+
+
+# ── audit entity tests ───────────────────────────────────────────────────────
+from mail_controller.domain.audit import AuditEntry
+
+_AUDIT_ROW = {"id": 1, "event_type": "auth", "success": True, "login": "a@example.com",
+              "src_ip": "10.0.0.1", "host": "mx1", "sender": None, "recipient": None,
+              "message_id": None, "queue_id": None, "score": None, "msg": "ok",
+              "pid": 1, "timestamp": None}
+
+
+def test_list_audit_returns_entities():
+    cur = FakeCursor(rows=[_AUDIT_ROW])
+    assert repo.list_audit(cur, limit=10) == [AuditEntry.from_row(_AUDIT_ROW)]
