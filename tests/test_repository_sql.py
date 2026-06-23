@@ -6,7 +6,7 @@ from mail_controller.exception.api_exceptions import UnprocessableError
 class FakeCursor:
     """Records SQL + params; returns canned rows. No real DB."""
     def __init__(self, rows=None, rowcount=1, rowcounts=None):
-        self.rows = rows or []
+        self._rows = list(rows) if rows else []
         self.rowcount = rowcount
         # Optional per-execute() rowcount queue; each execute() pops the next
         # value so a sequence of statements can report different rowcounts.
@@ -19,10 +19,10 @@ class FakeCursor:
             self.rowcount = self._rowcounts.pop(0)
 
     def fetchall(self):
-        return list(self.rows)
+        return list(self._rows)
 
     def fetchone(self):
-        return self.rows[0] if self.rows else None
+        return self._rows.pop(0) if self._rows else None
 
     @property
     def last_sql(self):
@@ -32,16 +32,26 @@ class FakeCursor:
     def all_sql(self):
         return " ".join(s for s, _ in self.executed)
 
+    def all_sql_params(self):
+        vals = []
+        for _, p in self.executed:
+            if isinstance(p, dict):
+                vals.extend(p.values())
+        return vals
+
 
 def test_list_users_never_selects_password():
-    cur = FakeCursor(rows=[{"email": "a@x.test", "active": True}])
+    cur = FakeCursor(rows=[{"id": 1, "email": "a@x.test", "quota_bytes": 0,
+                             "active": True, "created_at": None, "domain_id": 1}])
     repo.list_users(cur)
     assert "password" not in cur.all_sql.lower()
 
 
 def test_get_user_never_selects_password():
-    cur = FakeCursor(rows=[{"email": "a@x.test"}])
-    repo.get_user(cur, "a@x.test")
+    cur = FakeCursor(rows=[{"email": "a@x.test", "id": 1, "quota_bytes": 0,
+                             "active": True, "created_at": None, "domain_id": 1}])
+    from mail_controller.domain.address import EmailAddress
+    repo.get_user(cur, EmailAddress("a@x.test"))
     assert "password" not in cur.all_sql.lower()
 
 
@@ -55,9 +65,14 @@ def test_list_users_filter_by_domain_is_parameterized():
 
 def test_create_user_resolves_domain_id_first():
     # first execute resolves the domain; canned row gives its id
-    cur = FakeCursor(rows=[{"id": 7}])
-    repo.create_user(cur, "a@example.com", "example.com",
-                     "{ARGON2ID}$argon2id$x", 0, True)
+    # second row is the INSERT RETURNING result
+    from mail_controller.domain.mailbox import Mailbox
+    from mail_controller.domain.address import EmailAddress
+    _row = {"id": 7, "email": "a@example.com", "quota_bytes": 0,
+            "active": True, "created_at": None, "domain_id": 1}
+    cur = FakeCursor(rows=[{"id": 7}, _row])
+    mailbox = Mailbox(email=EmailAddress("a@example.com"), quota_bytes=0, active=True)
+    repo.create_user(cur, mailbox, "{ARGON2ID}$argon2id$x")
     # the INSERT into users must be parameterized and reference domain_id
     assert "insert into users" in cur.all_sql.lower()
     assert "domain_id" in cur.all_sql.lower()
@@ -73,10 +88,12 @@ def test_list_audit_limit_is_parameterized():
 
 def test_create_user_missing_domain_raises_unprocessable():
     # fetchone() returns None because rows=[] — domain lookup finds nothing
+    from mail_controller.domain.mailbox import Mailbox
+    from mail_controller.domain.address import EmailAddress
     cur = FakeCursor(rows=[])
     with pytest.raises(UnprocessableError):
-        repo.create_user(cur, "a@example.com", "example.com",
-                         "{ARGON2ID}$x", 0, True)
+        mailbox = Mailbox(email=EmailAddress("a@example.com"), quota_bytes=0, active=True)
+        repo.create_user(cur, mailbox, "{ARGON2ID}$x")
 
 
 # ── substring (--filter) tests ───────────────────────────────────────────────
@@ -160,8 +177,9 @@ def test_list_audit_since_and_until_combine():
 # ── delete_user cascade cleanup tests ────────────────────────────────────────
 def test_delete_user_cascades_forwardings_and_sender_logins():
     # rowcounts: users delete=1, forwardings delete=3, sender_login_maps delete=2
+    from mail_controller.domain.address import EmailAddress
     cur = FakeCursor(rowcounts=[1, 3, 2])
-    result = repo.delete_user(cur, "alice@example.com")
+    result = repo.delete_user(cur, EmailAddress("alice@example.com"))
 
     sql = cur.all_sql.lower()
     assert "delete from forwardings" in sql
@@ -174,8 +192,9 @@ def test_delete_user_cascades_forwardings_and_sender_logins():
 
 
 def test_delete_user_absent_returns_none_and_skips_cascade():
+    from mail_controller.domain.address import EmailAddress
     cur = FakeCursor(rowcounts=[0])  # no user row matched
-    result = repo.delete_user(cur, "ghost@example.com")
+    result = repo.delete_user(cur, EmailAddress("ghost@example.com"))
 
     assert result is None
     assert len(cur.executed) == 1  # only the users DELETE ran; no cascade
@@ -204,3 +223,26 @@ def test_create_domain_binds_value_and_returns_entity():
     _, params = cur.executed[-1]
     assert "example.com" in params.values()
     assert result == Domain.from_row(_DOMAIN_ROW)
+
+
+# ── mailbox entity tests ─────────────────────────────────────────────────────
+from mail_controller.domain.mailbox import Mailbox
+from mail_controller.domain.address import EmailAddress
+
+_USER_ROW = {"id": 5, "email": "alice@example.com", "quota_bytes": 0,
+             "active": True, "created_at": None, "domain_id": 1}
+
+
+def test_list_users_returns_mailbox_entities():
+    cur = FakeCursor(rows=[_USER_ROW])
+    assert repo.list_users(cur) == [Mailbox.from_row(_USER_ROW)]
+    assert "password" not in cur.all_sql.lower()
+
+
+def test_create_user_binds_email_and_hash():
+    cur = FakeCursor(rows=[{"id": 7}, _USER_ROW])  # domain lookup, then INSERT RETURNING
+    mailbox = Mailbox(email=EmailAddress("alice@example.com"), quota_bytes=0, active=True)
+    result = repo.create_user(cur, mailbox, "{ARGON2ID}$hash")
+    assert "alice@example.com" in cur.all_sql_params()
+    assert "{ARGON2ID}$hash" in cur.all_sql_params()
+    assert result == Mailbox.from_row(_USER_ROW)

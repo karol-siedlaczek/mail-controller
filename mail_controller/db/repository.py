@@ -4,7 +4,8 @@ import psycopg2
 from psycopg2 import errors
 from mail_controller.exception.api_exceptions import ConflictError, UnprocessableError
 from mail_controller.domain.domain import Domain
-from mail_controller.domain.address import DomainName
+from mail_controller.domain.address import DomainName, EmailAddress
+from mail_controller.domain.mailbox import Mailbox
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"
@@ -60,25 +61,27 @@ def delete_domain(cur, domain: str) -> bool:
 
 
 # ── users ──────────────────────────────────────────────────────────────────
-def list_users(cur, domain: str | None = None, term=None) -> list[dict]:
+def list_users(cur, domain=None, term=None) -> list[Mailbox]:
     clauses, params = [], {}
     if domain:
         clauses.append("domain_id = (SELECT id FROM domains WHERE domain = %(d)s)")
-        params["d"] = domain
+        params["d"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
         clauses.append("email ILIKE %(flt)s")
         params["flt"] = f"%{term}%"
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_USER_COLS} FROM users{where} ORDER BY email", params)
-    return cur.fetchall()
+    return [Mailbox.from_row(r) for r in cur.fetchall()]
 
 
-def get_user(cur, email: str) -> dict | None:
-    cur.execute(f"SELECT {_USER_COLS} FROM users WHERE email = %(e)s", {"e": email})
-    return cur.fetchone()
+def get_user(cur, email: EmailAddress) -> Mailbox | None:
+    cur.execute(f"SELECT {_USER_COLS} FROM users WHERE email = %(e)s", {"e": email.value})
+    row = cur.fetchone()
+    return Mailbox.from_row(row) if row else None
 
 
-def create_user(cur, email, domain, password_hash, quota_bytes, active) -> dict:
+def create_user(cur, mailbox: Mailbox, password_hash: str) -> Mailbox:
+    domain = mailbox.email.domain.value
     cur.execute("SELECT id FROM domains WHERE domain = %(d)s", {"d": domain})
     row = cur.fetchone()
     if not row:
@@ -88,53 +91,43 @@ def create_user(cur, email, domain, password_hash, quota_bytes, active) -> dict:
         cur.execute(
             f"INSERT INTO users (email, domain_id, password, quota_bytes, active) "
             f"VALUES (%(e)s, %(did)s, %(p)s, %(q)s, %(a)s) RETURNING {_USER_COLS}",
-            {"e": email, "did": domain_id, "p": password_hash, "q": quota_bytes, "a": active},
+            {"e": mailbox.email.value, "did": domain_id, "p": password_hash,
+             "q": mailbox.quota_bytes, "a": mailbox.active},
         )
     except errors.ForeignKeyViolation:
-        raise UnprocessableError(msg="Referenced domain does not exist", detail={"email": email})
+        raise UnprocessableError(msg="Referenced domain does not exist", detail={"email": mailbox.email.value})
     except errors.UniqueViolation:
-        raise ConflictError(msg="User already exists", detail={"email": email})
-    return cur.fetchone()
+        raise ConflictError(msg="User already exists", detail={"email": mailbox.email.value})
+    return Mailbox.from_row(cur.fetchone())
 
 
-def update_user(cur, email, quota_bytes, active) -> dict | None:
+def update_user(cur, email: EmailAddress, quota_bytes, active) -> Mailbox | None:
     cur.execute(
         f"UPDATE users SET "
         f"quota_bytes = COALESCE(%(q)s, quota_bytes), "
         f"active = COALESCE(%(a)s, active) "
         f"WHERE email = %(e)s RETURNING {_USER_COLS}",
-        {"e": email, "q": quota_bytes, "a": active},
+        {"e": email.value, "q": quota_bytes, "a": active},
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    return Mailbox.from_row(row) if row else None
 
 
-def set_user_password(cur, email, password_hash) -> bool:
-    cur.execute(
-        "UPDATE users SET password = %(p)s WHERE email = %(e)s",
-        {"p": password_hash, "e": email},
-    )
+def set_user_password(cur, email: EmailAddress, password_hash) -> bool:
+    cur.execute("UPDATE users SET password = %(p)s WHERE email = %(e)s",
+                {"p": password_hash, "e": email.value})
     return cur.rowcount > 0
 
 
-def delete_user(cur, email) -> dict | None:
-    cur.execute("DELETE FROM users WHERE email = %(e)s", {"e": email})
+def delete_user(cur, email: EmailAddress) -> dict | None:
+    cur.execute("DELETE FROM users WHERE email = %(e)s", {"e": email.value})
     if cur.rowcount == 0:
-        return None  # nothing existed; perform no cascade
-    cur.execute(
-        "DELETE FROM forwardings WHERE source = %(e)s OR destination = %(e)s",
-        {"e": email},
-    )
+        return None
+    cur.execute("DELETE FROM forwardings WHERE source = %(e)s OR destination = %(e)s", {"e": email.value})
     forwardings_deleted = cur.rowcount
-    cur.execute(
-        "DELETE FROM sender_login_maps "
-        "WHERE login_email = %(e)s OR allowed_sender = %(e)s",
-        {"e": email},
-    )
+    cur.execute("DELETE FROM sender_login_maps WHERE login_email = %(e)s OR allowed_sender = %(e)s", {"e": email.value})
     sender_logins_deleted = cur.rowcount
-    return {
-        "forwardings_deleted": forwardings_deleted,
-        "sender_logins_deleted": sender_logins_deleted,
-    }
+    return {"forwardings_deleted": forwardings_deleted, "sender_logins_deleted": sender_logins_deleted}
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
