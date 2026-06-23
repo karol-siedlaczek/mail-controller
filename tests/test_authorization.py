@@ -4,7 +4,7 @@ import hashlib
 import pytest
 from flask import Flask
 from mail_controller.domain.identity import Identity
-from mail_controller.domain.permission import PermissionAction
+from mail_controller.domain.permission import Permission, PermissionAction
 from mail_controller.api.context import Context
 from mail_controller.conf.config import Config
 from mail_controller.exception.api_exceptions import PermissionDeniedError
@@ -60,7 +60,7 @@ def test_filter_readable_by_domain_field(monkeypatch):
     app = _app_with(ident)
     rows = [{"domain": "example.com"}, {"domain": "other.com"}]
     with app.test_request_context("/"):
-        out = _ctx(ident).filter_readable(rows, "domain")
+        out = _ctx(ident).filter_readable(rows, lambda r: r["domain"])
     assert out == [{"domain": "example.com"}]
 
 
@@ -69,8 +69,15 @@ def test_filter_readable_by_email_field(monkeypatch):
     app = _app_with(ident)
     rows = [{"email": "u@example.com"}, {"email": "u@other.com"}]
     with app.test_request_context("/"):
-        out = _ctx(ident).filter_readable(rows, "email")
+        out = _ctx(ident).filter_readable(rows, lambda r: r["email"].rsplit("@", 1)[1])
     assert out == [{"email": "u@example.com"}]
+
+
+def _login_domain(r):
+    login = r["login"]
+    if login and "@" in login:
+        return login.rsplit("@", 1)[1]
+    return None
 
 
 def test_filter_audit_null_login_requires_star(monkeypatch):
@@ -79,10 +86,10 @@ def test_filter_audit_null_login_requires_star(monkeypatch):
     rows = [{"login": None}, {"login": "u@example.com"}]
     app = _app_with(star)
     with app.test_request_context("/"):
-        assert _ctx(star).filter_readable(rows, "login") == rows
+        assert _ctx(star).filter_readable(rows, _login_domain) == rows
     app2 = _app_with(scoped)
     with app2.test_request_context("/"):
-        assert _ctx(scoped).filter_readable(rows, "login") == [{"login": "u@example.com"}]
+        assert _ctx(scoped).filter_readable(rows, _login_domain) == [{"login": "u@example.com"}]
 
 
 def test_filter_audit_malformed_login(monkeypatch):
@@ -97,11 +104,24 @@ def test_filter_audit_malformed_login(monkeypatch):
     # *-scope reader keeps malformed row (same as null treatment)
     app_star = _app_with(star)
     with app_star.test_request_context("/"):
-        result = _ctx(star).filter_readable(rows, "login")
+        result = _ctx(star).filter_readable(rows, _login_domain)
     assert result == rows, "star reader should keep all rows including malformed"
 
     # scoped reader drops malformed row silently; keeps only its own domain
     app_scoped = _app_with(scoped)
     with app_scoped.test_request_context("/"):
-        result = _ctx(scoped).filter_readable(rows, "login")
+        result = _ctx(scoped).filter_readable(rows, _login_domain)
     assert result == [{"login": "u@example.com"}], "scoped reader should drop malformed and foreign rows"
+
+
+def _ctx_with_scope(scope):
+    perm = Permission(scope, PermissionAction.READ)
+    ident = Identity(id="t", hmac_hex="x" * 64, allowed_cidrs=[], permissions=[perm])
+    return Context(remote_ip="127.0.0.1", identity=ident)
+
+
+def test_filter_readable_uses_domain_accessor():
+    ctx = _ctx_with_scope("example.com")
+    rows = [{"d": "example.com"}, {"d": "other.test"}]
+    visible = ctx.filter_readable(rows, lambda r: r["d"])
+    assert visible == [{"d": "example.com"}]
