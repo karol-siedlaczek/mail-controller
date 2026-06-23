@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from mail_controller.domain.domain import Domain
 from mail_controller.domain.address import DomainName
+from mail_controller.domain.mailbox import Mailbox
+from mail_controller.domain.address import EmailAddress
 
 _TS = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -11,3 +13,11 @@ def test_domain_from_row_to_dict_roundtrip():
     d = Domain.from_row(row)
     assert d.name == DomainName("example.com")
     assert d.to_dict() == row  # exact key/value contract
+
+
+def test_mailbox_from_row_to_dict_roundtrip():
+    row = {"id": 5, "email": "alice@example.com", "quota_bytes": 1024,
+           "active": True, "created_at": _TS, "domain_id": 1}
+    m = Mailbox.from_row(row)
+    assert m.email == EmailAddress("alice@example.com")
+    assert m.to_dict() == row
