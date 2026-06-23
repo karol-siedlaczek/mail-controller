@@ -23,14 +23,10 @@ class Context:
                 detail={"identity": self.identity.id, "domain": domain, "action": action.value}
             )
 
-    def can_read(self, domain: str) -> bool:
-        return self.identity.allows(domain, PermissionAction.READ)
-
-    def can_write(self, domain: str) -> bool:
-        return self.identity.allows(domain, PermissionAction.WRITE)
-
     def _has_star_read(self) -> bool:
-        return any(p.scope == "*" and p.allows("any.example", PermissionAction.READ)
+        # A global reader is any "*"-scope permission whose action grants READ
+        # (READ, or WRITE/ANY which imply READ). No domain is involved.
+        return any(p.scope == "*" and p._action_satisfies(PermissionAction.READ)
                    for p in self.identity.permissions)
 
     def filter_readable(self, rows: list[dict], domain_key: str) -> list[dict]:
@@ -52,10 +48,6 @@ class Context:
                     if self._has_star_read():
                         out.append(row)
                     continue
-            if self.can_read(domain):
+            if self.identity.allows(domain, PermissionAction.READ):
                 out.append(row)
         return out
-
-    @staticmethod
-    def domain_for_email(email: str) -> str:
-        return domain_of(email)

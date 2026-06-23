@@ -126,3 +126,53 @@ def test_stored_hash_is_dovecot_argon2id(stack):
     with pytest.raises(VerifyMismatchError):
         ph.verify(stored[len("{ARGON2ID}"):], "wrong")
     requests.delete(f"{stack}/api/users/hashcheck@artform.test", headers=_h("admin"))
+
+
+def test_delete_user_cascades_all_references(stack):
+    dom = "cascade.test"
+    requests.post(f"{stack}/api/domains", json={"domain": dom}, headers=_h("admin"))
+    requests.post(f"{stack}/api/users",
+                  json={"email": f"alice@{dom}", "password": "Sup3rSecret!"},
+                  headers=_h("admin"))
+
+    # alice as forwarding SOURCE
+    requests.post(f"{stack}/api/forwardings",
+                  json={"source": f"alice@{dom}", "destination": "ext@elsewhere.test"},
+                  headers=_h("admin"))
+    # alice as forwarding DESTINATION (a list alias points at her)
+    requests.post(f"{stack}/api/forwardings",
+                  json={"source": f"list@{dom}", "destination": f"alice@{dom}"},
+                  headers=_h("admin"))
+    # alice as send-as LOGIN_EMAIL
+    requests.post(f"{stack}/api/sender-logins",
+                  json={"login_email": f"alice@{dom}", "allowed_sender": f"boss@{dom}"},
+                  headers=_h("admin"))
+    # alice as send-as ALLOWED_SENDER
+    requests.post(f"{stack}/api/sender-logins",
+                  json={"login_email": f"carol@{dom}", "allowed_sender": f"alice@{dom}"},
+                  headers=_h("admin"))
+
+    r = requests.delete(f"{stack}/api/users/alice@{dom}", headers=_h("admin"))
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["forwardings_deleted"] == 2
+    assert data["sender_logins_deleted"] == 2
+
+    # nothing referencing alice remains
+    fwds = requests.get(f"{stack}/api/forwardings", headers=_h("admin")).json()["data"]
+    assert not [f for f in fwds
+                if f"alice@{dom}" in (f["source"], f["destination"])]
+    slms = requests.get(f"{stack}/api/sender-logins", headers=_h("admin")).json()["data"]
+    assert not [s for s in slms
+                if f"alice@{dom}" in (s["login_email"], s["allowed_sender"])]
+
+    # deleting a non-existent user is a 404, not a 200
+    assert requests.delete(f"{stack}/api/users/ghost@{dom}",
+                           headers=_h("admin")).status_code == 404
+
+    # cleanup leftover rows/domain
+    requests.delete(f"{stack}/api/users/carol@{dom}", headers=_h("admin"))
+    for f in requests.get(f"{stack}/api/forwardings", headers=_h("admin")).json()["data"]:
+        if dom in f["source"]:
+            requests.delete(f"{stack}/api/forwardings/{f['id']}", headers=_h("admin"))
+    requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin"))

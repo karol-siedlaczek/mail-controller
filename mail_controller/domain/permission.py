@@ -38,12 +38,15 @@ class Permission:
         scope, action_raw = match.groups()
         Require.present(f"permissions[{index}].scope", scope)
         Require.one_of(f"permissions[{index}]", action_raw, PermissionAction.values())
+        
         return cls(scope, PermissionAction(action_raw))
+
 
     def _scope_matches(self, domain: str) -> bool:
         if self.scope == "*":
             return True
         return fnmatch.fnmatch(domain.lower(), self.scope.lower())
+
 
     def _action_satisfies(self, action: PermissionAction) -> bool:
         if self.action == PermissionAction.ANY:
@@ -51,6 +54,7 @@ class Permission:
         if self.action == PermissionAction.WRITE:
             return action in (PermissionAction.READ, PermissionAction.WRITE)
         return action == PermissionAction.READ
+
 
     def allows(self, domain: str, action: PermissionAction) -> bool:
         return self._scope_matches(domain) and self._action_satisfies(action)

@@ -13,8 +13,12 @@ _AUDIT_COLS = ('id, event_type, success, login, host(src_ip) AS src_ip, host, '
 
 
 # ── domains ────────────────────────────────────────────────────────────────
-def list_domains(cur) -> list[dict]:
-    cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains ORDER BY domain")
+def list_domains(cur, term=None) -> list[dict]:
+    where, params = "", {}
+    if term:
+        where = " WHERE domain ILIKE %(flt)s"
+        params["flt"] = f"%{term}%"
+    cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains{where} ORDER BY domain", params)
     return cur.fetchall()
 
 
@@ -52,16 +56,16 @@ def delete_domain(cur, domain: str) -> bool:
 
 
 # ── users ──────────────────────────────────────────────────────────────────
-def list_users(cur, domain: str | None = None) -> list[dict]:
+def list_users(cur, domain: str | None = None, term=None) -> list[dict]:
+    clauses, params = [], {}
     if domain:
-        cur.execute(
-            f"SELECT {_USER_COLS} FROM users "
-            f"WHERE domain_id = (SELECT id FROM domains WHERE domain = %(d)s) "
-            f"ORDER BY email",
-            {"d": domain},
-        )
-    else:
-        cur.execute(f"SELECT {_USER_COLS} FROM users ORDER BY email")
+        clauses.append("domain_id = (SELECT id FROM domains WHERE domain = %(d)s)")
+        params["d"] = domain
+    if term:
+        clauses.append("email ILIKE %(flt)s")
+        params["flt"] = f"%{term}%"
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    cur.execute(f"SELECT {_USER_COLS} FROM users{where} ORDER BY email", params)
     return cur.fetchall()
 
 
@@ -108,13 +112,29 @@ def set_user_password(cur, email, password_hash) -> bool:
     return cur.rowcount > 0
 
 
-def delete_user(cur, email) -> bool:
+def delete_user(cur, email) -> dict | None:
     cur.execute("DELETE FROM users WHERE email = %(e)s", {"e": email})
-    return cur.rowcount > 0
+    if cur.rowcount == 0:
+        return None  # nothing existed; perform no cascade
+    cur.execute(
+        "DELETE FROM forwardings WHERE source = %(e)s OR destination = %(e)s",
+        {"e": email},
+    )
+    forwardings_deleted = cur.rowcount
+    cur.execute(
+        "DELETE FROM sender_login_maps "
+        "WHERE login_email = %(e)s OR allowed_sender = %(e)s",
+        {"e": email},
+    )
+    sender_logins_deleted = cur.rowcount
+    return {
+        "forwardings_deleted": forwardings_deleted,
+        "sender_logins_deleted": sender_logins_deleted,
+    }
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
-def list_forwardings(cur, source=None, domain=None) -> list[dict]:
+def list_forwardings(cur, source=None, domain=None, term=None) -> list[dict]:
     clauses, params = [], {}
     if source:
         clauses.append("source = %(src)s")
@@ -122,6 +142,9 @@ def list_forwardings(cur, source=None, domain=None) -> list[dict]:
     if domain:
         clauses.append("split_part(source, '@', 2) = %(dom)s")
         params["dom"] = domain
+    if term:
+        clauses.append("(source ILIKE %(flt)s OR destination ILIKE %(flt)s)")
+        params["flt"] = f"%{term}%"
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_FWD_COLS} FROM forwardings{where} ORDER BY source, destination", params)
     return cur.fetchall()
@@ -146,17 +169,20 @@ def delete_forwarding(cur, fid: int) -> bool:
 
 
 # ── sender_login_maps ────────────────────────────────────────────────────────
-def list_sender_logins(cur, domain=None) -> list[dict]:
+def list_sender_logins(cur, domain=None, term=None) -> list[dict]:
+    clauses, params = [], {}
     if domain:
-        cur.execute(
-            f"SELECT {_SLM_COLS} FROM sender_login_maps "
-            f"WHERE split_part(allowed_sender, '@', 2) = %(d)s "
-            f"ORDER BY allowed_sender, login_email",
-            {"d": domain},
-        )
-    else:
-        cur.execute(f"SELECT {_SLM_COLS} FROM sender_login_maps "
-                    f"ORDER BY allowed_sender, login_email")
+        clauses.append("split_part(allowed_sender, '@', 2) = %(d)s")
+        params["d"] = domain
+    if term:
+        clauses.append("(login_email ILIKE %(flt)s OR allowed_sender ILIKE %(flt)s)")
+        params["flt"] = f"%{term}%"
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    cur.execute(
+        f"SELECT {_SLM_COLS} FROM sender_login_maps{where} "
+        f"ORDER BY allowed_sender, login_email",
+        params,
+    )
     return cur.fetchall()
 
 
@@ -179,7 +205,7 @@ def delete_sender_login(cur, sid: int) -> bool:
 
 
 # ── audit_logs (read-only) ───────────────────────────────────────────────────
-def list_audit(cur, login=None, event_type=None, since=None, limit=100) -> list[dict]:
+def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=100) -> list[dict]:
     clauses, params = [], {"lim": limit}
     if login:
         clauses.append("login = %(login)s")
@@ -190,6 +216,9 @@ def list_audit(cur, login=None, event_type=None, since=None, limit=100) -> list[
     if since:
         clauses.append('"timestamp" >= %(since)s')
         params["since"] = since
+    if until:
+        clauses.append('"timestamp" <= %(until)s')
+        params["until"] = until
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(
         f'SELECT {_AUDIT_COLS} FROM audit_logs{where} '

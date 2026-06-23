@@ -25,14 +25,14 @@ class Identity:
             Require.present(name, val)
             return val
 
-        ident_id = get_required("id")
+        identity_id = get_required("id")
         allowed_cidrs = get_required("allowed_cidrs")
         raw_permissions = get_required("permissions")
 
-        Require.type("id", ident_id, str)
-        Require.match("id", ident_id, r'^[A-Za-z_0-9]+$')
+        Require.type("id", identity_id, str)
+        Require.match("id", identity_id, r'^[A-Za-z_0-9]+$')
 
-        hmac_env = f"TOKEN_{str(ident_id).upper()}_HMAC"
+        hmac_env = f"TOKEN_{str(identity_id).upper()}_HMAC"
         hmac_hex = Require.env(hmac_env)
         Require.min_len(hmac_env, os.getenv(hmac_env), 64)
 
@@ -43,22 +43,30 @@ class Identity:
         Require.type("permissions", raw_permissions, list)
         permissions = [Permission.from_string(i, perm) for i, perm in enumerate(raw_permissions)]
 
-        return cls(ident_id, hmac_hex, allowed_cidrs, permissions)
+        return cls(identity_id, hmac_hex, allowed_cidrs, permissions)
+
 
     def is_token_valid(self, hmac_key: bytes, token: str) -> bool:
         token_hmac_hex = hmac.new(hmac_key, token.encode("UTF-8"), sha256).hexdigest()
         return hmac.compare_digest(token_hmac_hex, self.hmac_hex)
 
+
     def is_ip_allowed(self, ip_addr: str | None = None) -> bool:
+        log.debug(f"Perform ip address check (ip_addr='{ip_addr}', identity='{self}')")
+        
         if not ip_addr:
             return False
+        
         try:
             ip_obj = ipaddress.ip_address(ip_addr)
-        except ValueError:
+        except ValueError: # Invalid ip_addr format
             return False
+        
         for cidr in self.allowed_cidrs:
-            if ip_obj in ipaddress.ip_network(cidr, strict=False):
+            network = ipaddress.ip_network(cidr, strict=False)
+            if ip_obj in network:
                 return True
+            
         return False
 
     def allows(self, domain: str, action: PermissionAction) -> bool:

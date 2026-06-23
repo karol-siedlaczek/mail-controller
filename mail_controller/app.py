@@ -1,4 +1,3 @@
-import os
 import logging
 from pathlib import Path
 from flask import Flask, Response
@@ -78,8 +77,7 @@ def setup_error_handlers(app: Flask) -> None:
     @app.errorhandler(AuthException)
     def handle_auth_exception(e: AuthException) -> Response:
         log_request(f"{type(e).__name__}: {e.msg}, details: {e.detail}", level="warning")
-        return build_response(e.code, msg=e.msg,
-                              detail=None if isinstance(e, AuthFailedException) else e.detail)
+        return build_response(e.code, msg=e.msg, detail=None if isinstance(e, AuthFailedException) else e.detail)
 
     @app.errorhandler(ApiError)
     def handle_api_error(e: ApiError) -> Response:

@@ -4,7 +4,7 @@ from flask import Blueprint, Response
 from mail_controller.api.context import Context
 from mail_controller.api.helpers import build_response
 from mail_controller.api.validators import (
-    query_str, query_int, json_body, json_body_field,
+    query_str, query_int, query_date, json_body, json_body_field,
 )
 from mail_controller.conf.config import Config
 from mail_controller.db.pool import Database
@@ -16,11 +16,8 @@ from mail_controller.exception.api_exceptions import ResourceNotFoundError, Inva
 
 api = Blueprint("api", __name__)
 
-READ = PermissionAction.READ
-WRITE = PermissionAction.WRITE
+# ── liveness / version  ────────────────────────────────────────────────
 
-
-# ── liveness / introspection ────────────────────────────────────────────────
 @api.route("/ping", methods=["GET"])
 def ping() -> str:
     return "pong"
@@ -35,6 +32,16 @@ def version() -> Response:
         "python": platform.python_version(),
     })
 
+# ── token  ────────────────────────────────────────────────
+
+
+@api.route("/api/token/scope", methods=["GET"])
+def token_scope() -> Response:
+    ctx = Context.authenticate()
+    return build_response(200, data={
+        "permissions": [f"{p.scope}:{p.action.value}" for p in ctx.identity.permissions],
+    })
+
 
 @api.route("/api/token/identity", methods=["GET"])
 def token_identity() -> Response:
@@ -47,21 +54,17 @@ def token_identity() -> Response:
     })
 
 
-@api.route("/api/token/scope", methods=["GET"])
-def token_scope() -> Response:
-    ctx = Context.authenticate()
-    return build_response(200, data={
-        "permissions": [f"{p.scope}:{p.action.value}" for p in ctx.identity.permissions],
-    })
-
-
 # ── domains ──────────────────────────────────────────────────────────────────
+
 @api.route("/api/domains", methods=["GET"])
 def list_domains() -> Response:
     ctx = Context.authenticate()
+    term = query_str("filter", default=None)
+    
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_domains(cur)
+        rows = repo.list_domains(cur, term=term)
+        
     return build_response(200, data=ctx.filter_readable(rows, "domain"))
 
 
@@ -70,10 +73,11 @@ def create_domain() -> Response:
     ctx = Context.authenticate()
     body = json_body()
     domain = normalize_domain(json_body_field(body, "domain"))
-    ctx.require(domain, WRITE)
+    ctx.require(domain, PermissionAction.WRITE)
     dkim_selector = json_body_field(body, "dkim_selector", required=False) or "default"
     active = json_body_field(body, "active", required=False)
     active = True if active is None else bool(active)
+    
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         row = repo.create_domain(cur, domain, dkim_selector, active)
@@ -84,7 +88,7 @@ def create_domain() -> Response:
 def get_domain(domain: str) -> Response:
     domain = normalize_domain(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, READ)
+    ctx.require(domain, PermissionAction.READ)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         row = repo.get_domain(cur, domain)
@@ -97,7 +101,7 @@ def get_domain(domain: str) -> Response:
 def update_domain(domain: str) -> Response:
     domain = normalize_domain(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, WRITE)
+    ctx.require(domain, PermissionAction.WRITE)
     body = json_body()
     dkim_selector = json_body_field(body, "dkim_selector", required=False)
     active = json_body_field(body, "active", required=False)
@@ -114,7 +118,7 @@ def update_domain(domain: str) -> Response:
 def delete_domain(domain: str) -> Response:
     domain = normalize_domain(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, WRITE)
+    ctx.require(domain, PermissionAction.WRITE)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         ok = repo.delete_domain(cur, domain)
@@ -128,11 +132,12 @@ def delete_domain(domain: str) -> Response:
 def list_users() -> Response:
     ctx = Context.authenticate()
     domain = query_str("domain", default=None)
+    term = query_str("filter", default=None)
     if domain:
         domain = normalize_domain(domain)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_users(cur, domain=domain)
+        rows = repo.list_users(cur, domain=domain, term=term)
     return build_response(200, data=ctx.filter_readable(rows, "email"))
 
 
@@ -141,7 +146,7 @@ def create_user() -> Response:
     ctx = Context.authenticate()
     body = json_body()
     email = normalize_email(json_body_field(body, "email"))
-    ctx.require(domain_of(email), WRITE)
+    ctx.require(domain_of(email), PermissionAction.WRITE)
     password = json_body_field(body, "password")
     quota_bytes = json_body_field(body, "quota_bytes", required=False, cast_fn=int) or 0
     active = json_body_field(body, "active", required=False)
@@ -158,7 +163,7 @@ def create_user() -> Response:
 def get_user(email: str) -> Response:
     email = normalize_email(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), READ)
+    ctx.require(domain_of(email), PermissionAction.READ)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         row = repo.get_user(cur, email)
@@ -171,7 +176,7 @@ def get_user(email: str) -> Response:
 def update_user(email: str) -> Response:
     email = normalize_email(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), WRITE)
+    ctx.require(domain_of(email), PermissionAction.WRITE)
     body = json_body()
     quota_bytes = json_body_field(body, "quota_bytes", required=False, cast_fn=int)
     active = json_body_field(body, "active", required=False)
@@ -188,7 +193,7 @@ def update_user(email: str) -> Response:
 def set_password(email: str) -> Response:
     email = normalize_email(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), WRITE)
+    ctx.require(domain_of(email), PermissionAction.WRITE)
     body = json_body()
     password = json_body_field(body, "password")
     conf = Config.get_from_global_context()
@@ -205,13 +210,13 @@ def set_password(email: str) -> Response:
 def delete_user(email: str) -> Response:
     email = normalize_email(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), WRITE)
+    ctx.require(domain_of(email), PermissionAction.WRITE)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        ok = repo.delete_user(cur, email)
-    if not ok:
+        result = repo.delete_user(cur, email)
+    if result is None:
         raise ResourceNotFoundError(msg="User not found", detail={"email": email})
-    return build_response(200, data={"email": email, "deleted": True})
+    return build_response(200, data={"email": email, "deleted": True, **result})
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
@@ -220,13 +225,14 @@ def list_forwardings() -> Response:
     ctx = Context.authenticate()
     source = query_str("source", default=None)
     domain = query_str("domain", default=None)
+    term = query_str("filter", default=None)
     if source:
         source = normalize_email(source)
     if domain:
         domain = normalize_domain(domain)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_forwardings(cur, source=source, domain=domain)
+        rows = repo.list_forwardings(cur, source=source, domain=domain, term=term)
     return build_response(200, data=ctx.filter_readable(rows, "source"))
 
 
@@ -236,7 +242,7 @@ def create_forwarding() -> Response:
     body = json_body()
     source = normalize_email(json_body_field(body, "source"))
     destination = normalize_email(json_body_field(body, "destination"))
-    ctx.require(domain_of(source), WRITE)
+    ctx.require(domain_of(source), PermissionAction.WRITE)
     keep_copy = json_body_field(body, "keep_copy", required=False)
     keep_copy = False if keep_copy is None else bool(keep_copy)
     db = Database.get_from_global_context()
@@ -254,7 +260,7 @@ def delete_forwarding(fid: int) -> Response:
         target = next((r for r in rows if r["id"] == fid), None)
         if not target:
             raise ResourceNotFoundError(msg="Forwarding not found", detail={"id": fid})
-        ctx.require(domain_of(target["source"]), WRITE)
+        ctx.require(domain_of(target["source"]), PermissionAction.WRITE)
         repo.delete_forwarding(cur, fid)
     return build_response(200, data={"id": fid, "deleted": True})
 
@@ -264,11 +270,12 @@ def delete_forwarding(fid: int) -> Response:
 def list_sender_logins() -> Response:
     ctx = Context.authenticate()
     domain = query_str("domain", default=None)
+    term = query_str("filter", default=None)
     if domain:
         domain = normalize_domain(domain)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_sender_logins(cur, domain=domain)
+        rows = repo.list_sender_logins(cur, domain=domain, term=term)
     return build_response(200, data=ctx.filter_readable(rows, "allowed_sender"))
 
 
@@ -278,7 +285,7 @@ def create_sender_login() -> Response:
     body = json_body()
     login_email = normalize_email(json_body_field(body, "login_email"))
     allowed_sender = normalize_email(json_body_field(body, "allowed_sender"))
-    ctx.require(domain_of(allowed_sender), WRITE)
+    ctx.require(domain_of(allowed_sender), PermissionAction.WRITE)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         row = repo.create_sender_login(cur, login_email, allowed_sender)
@@ -294,7 +301,7 @@ def delete_sender_login(sid: int) -> Response:
         target = next((r for r in rows if r["id"] == sid), None)
         if not target:
             raise ResourceNotFoundError(msg="Sender-login grant not found", detail={"id": sid})
-        ctx.require(domain_of(target["allowed_sender"]), WRITE)
+        ctx.require(domain_of(target["allowed_sender"]), PermissionAction.WRITE)
         repo.delete_sender_login(cur, sid)
     return build_response(200, data={"id": sid, "deleted": True})
 
@@ -305,9 +312,10 @@ def list_audit() -> Response:
     ctx = Context.authenticate()
     login = query_str("login", default=None)
     event_type = query_str("event_type", default=None)
-    since = query_str("since", default=None)
+    since = query_date("since", default=None)
+    until = query_date("until", default=None)
     limit = query_int("limit", default=100, min_val=1, max_val=1000)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_audit(cur, login=login, event_type=event_type, since=since, limit=limit)
+        rows = repo.list_audit(cur, login=login, event_type=event_type, since=since, until=until, limit=limit)
     return build_response(200, data=ctx.filter_readable(rows, "login"))

@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 def get_remote_ip() -> str | None:
     if request.remote_addr:
         return request.remote_addr
+    
     xff = request.headers.get("X-Forwarded-For", "")
     return xff.split(",")[0].strip() if xff else None
 
@@ -22,15 +23,21 @@ def get_remote_ip() -> str | None:
 def log_request(msg: str, *, identity: Identity | None = None, level: str = "info") -> None:
     level = level.lower()
     log_fn = getattr(log, level, None)
+    
     if not callable(log_fn):
         raise ValueError(f"Invalid log level: {level}")
-    log_fn(f"{request.remote_addr} {request.method} {request.path} "
-           f"{f'({identity.id}) ' if identity else ''}{msg}")
+    log_fn(f"{request.remote_addr} {request.method} {request.path} {f'({identity.id}) ' if identity else ''}{msg}")
 
 
-def build_response(code: int, *, msg: str | None = None,
-                   data: Any = None, detail: Any | None = None) -> Response:
+def build_response(
+    code: int, 
+    *, 
+    msg: str | None = None,
+    data: Any = None, 
+    detail: Any | None = None
+) -> Response:
     payload: dict[str, Any] = {}
+    
     if msg is not None:
         payload["message"] = msg
     if detail is not None:
@@ -46,6 +53,7 @@ def build_response(code: int, *, msg: str | None = None,
         **payload,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    
     response = jsonify(payload)
     response.status_code = code
     return response
@@ -53,12 +61,14 @@ def build_response(code: int, *, msg: str | None = None,
 
 def require_auth(remote_ip: str | None) -> Identity:
     auth_header = request.headers.get("Authorization", None)
-    if not auth_header:
+    
+    if not auth_header or auth_header == "":
         raise AuthTokenMissingException("Authorization header is missing or empty")
-    if not auth_header.startswith("Bearer "):
+    elif not auth_header.startswith("Bearer "):
         raise AuthTokenMissingException("Authorization header does not start with 'Bearer '")
 
     token_raw = auth_header[len("Bearer "):].strip()
+    
     try:
         identity_id, identity_token = token_raw.split(".", 1)
         if not identity_id or not identity_token:
@@ -68,10 +78,12 @@ def require_auth(remote_ip: str | None) -> Identity:
 
     conf = Config.get_from_global_context()
     identity = next((i for i in conf.identities if i.id == identity_id), None)
+    
     if identity is None:
         raise AuthFailedException(f"Unknown identity '{identity_id}'")
     if not identity.is_token_valid(conf.hmac_key, identity_token):
         raise AuthFailedException(f"Invalid token for identity '{identity_id}'")
     if not identity.is_ip_allowed(remote_ip):
         raise AuthIpNotAllowedException(remote_ip)
+    
     return identity

@@ -1,7 +1,6 @@
 import os
 import base64
 import yaml
-from pathlib import Path
 from typing import ClassVar, Any, cast
 from dataclasses import dataclass, field
 from flask import current_app as app, g
@@ -84,8 +83,10 @@ class Config:
     def _parse_identities(identities_raw: Any) -> list[Identity]:
         if identities_raw is None:
             return []
+        
         Require.type("identities", identities_raw, list)
         identities: list[Identity] = []
+        
         for i, item in enumerate(identities_raw):
             Require.type(f"identities[{i}]", item, dict)
             Require.not_one_of(f"identities[{i}].id", item.get("id"), [x.id for x in identities])
@@ -93,6 +94,7 @@ class Config:
                 identities.append(Identity.from_dict(item))
             except ValidationError as e:
                 raise ValidationError(f"Error found at identities[{i}]: {e}")
+            
         return identities
 
     @staticmethod

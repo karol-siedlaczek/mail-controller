@@ -29,9 +29,6 @@ class Database:
         finally:
             self._pool.putconn(conn)
 
-    def closeall(self) -> None:
-        self._pool.closeall()
-
     @staticmethod
     def get_from_global_context() -> "Database":
         if "db" not in g:

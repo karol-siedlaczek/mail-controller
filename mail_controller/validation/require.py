@@ -90,7 +90,7 @@ class Require():
             Require.type(field, val, int)
             Require.min(field, val, min_val)
             Require.max(field, val, max_val)
-        except ValueError as _:
+        except ValidationError:
             Require._raise_error(
                 default_err=f"Value '{field}={val}' is not valid port number, value is out of range ({min_val}-{max_val})",
                 custom_err=custom_err
@@ -231,10 +231,10 @@ class Require():
     def installed_module(
         field: str,
         val: str,
-        module_name: list[Any],
+        module_name: str,
         custom_err: str | None = None
     ) -> None:
-        if importlib.util.find_spec(module_name) is not None:
+        if importlib.util.find_spec(module_name) is None:
             Require._raise_error(
                 default_err=f"Value '{field}={val}' requires module '{module_name}' to be installed",
                 custom_err=custom_err
