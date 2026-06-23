@@ -3,6 +3,7 @@ from mail_controller.domain.domain import Domain
 from mail_controller.domain.address import DomainName
 from mail_controller.domain.mailbox import Mailbox
 from mail_controller.domain.address import EmailAddress
+from mail_controller.domain.forwarding import Forwarding
 
 _TS = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -21,3 +22,11 @@ def test_mailbox_from_row_to_dict_roundtrip():
     m = Mailbox.from_row(row)
     assert m.email == EmailAddress("alice@example.com")
     assert m.to_dict() == row
+
+
+def test_forwarding_from_row_to_dict_roundtrip():
+    row = {"id": 3, "source": "a@example.com", "destination": "b@elsewhere.test",
+           "keep_copy": False, "active": True, "created_at": _TS}
+    f = Forwarding.from_row(row)
+    assert f.source == EmailAddress("a@example.com")
+    assert f.to_dict() == row
