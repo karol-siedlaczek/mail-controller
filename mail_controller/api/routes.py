@@ -14,6 +14,7 @@ from mail_controller.domain.address import normalize_email, normalize_domain, do
 from mail_controller.domain.forwarding import Forwarding
 from mail_controller.domain.domain import Domain
 from mail_controller.domain.mailbox import Mailbox
+from mail_controller.domain.sender_login import SenderLogin
 from mail_controller.security.password import hash_password
 from mail_controller.exception.api_exceptions import ResourceNotFoundError, InvalidRequestError
 
@@ -274,25 +275,26 @@ def list_sender_logins() -> Response:
     ctx = Context.authenticate()
     domain = query_str("domain", default=None)
     term = query_str("filter", default=None)
-    if domain:
-        domain = normalize_domain(domain)
+    dom = DomainName.parse(domain) if domain else None
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_sender_logins(cur, domain=domain, term=term)
-    return build_response(200, data=ctx.filter_readable(rows, "allowed_sender"))
+        rows = repo.list_sender_logins(cur, domain=dom, term=term)
+    visible = ctx.filter_readable(rows, lambda s: s.allowed_sender.domain.value)
+    return build_response(200, data=[s.to_dict() for s in visible])
 
 
 @api.route("/api/sender-logins", methods=["POST"])
 def create_sender_login() -> Response:
     ctx = Context.authenticate()
     body = json_body()
-    login_email = normalize_email(json_body_field(body, "login_email"))
-    allowed_sender = normalize_email(json_body_field(body, "allowed_sender"))
-    ctx.require(domain_of(allowed_sender), PermissionAction.WRITE)
+    login_email = EmailAddress.parse(json_body_field(body, "login_email"))
+    allowed_sender = EmailAddress.parse(json_body_field(body, "allowed_sender"))
+    ctx.require(allowed_sender.domain.value, PermissionAction.WRITE)
+    grant = SenderLogin(login_email=login_email, allowed_sender=allowed_sender)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.create_sender_login(cur, login_email, allowed_sender)
-    return build_response(201, data=row)
+        row = repo.create_sender_login(cur, grant)
+    return build_response(201, data=row.to_dict())
 
 
 @api.route("/api/sender-logins/<int:sid>", methods=["DELETE"])
@@ -301,10 +303,10 @@ def delete_sender_login(sid: int) -> Response:
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         rows = repo.list_sender_logins(cur)
-        target = next((r for r in rows if r["id"] == sid), None)
+        target = next((r for r in rows if r.id == sid), None)
         if not target:
             raise ResourceNotFoundError(msg="Sender-login grant not found", detail={"id": sid})
-        ctx.require(domain_of(target["allowed_sender"]), PermissionAction.WRITE)
+        ctx.require(target.allowed_sender.domain.value, PermissionAction.WRITE)
         repo.delete_sender_login(cur, sid)
     return build_response(200, data={"id": sid, "deleted": True})
 
