@@ -5,6 +5,7 @@ from mail_controller.domain.mailbox import Mailbox
 from mail_controller.domain.address import EmailAddress
 from mail_controller.domain.forwarding import Forwarding
 from mail_controller.domain.sender_login import SenderLogin
+from mail_controller.domain.audit import AuditEntry
 
 _TS = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -39,3 +40,19 @@ def test_sender_login_from_row_to_dict_roundtrip():
     s = SenderLogin.from_row(row)
     assert s.allowed_sender == EmailAddress("boss@example.com")
     assert s.to_dict() == row
+
+
+def test_audit_entry_roundtrip_and_login_domain():
+    row = {"id": 1, "event_type": "auth", "success": True, "login": "alice@example.com",
+           "src_ip": "10.0.0.1", "host": "mx1", "sender": None, "recipient": None,
+           "message_id": None, "queue_id": None, "score": None, "msg": "ok",
+           "pid": 42, "timestamp": _TS}
+    a = AuditEntry.from_row(row)
+    assert a.to_dict() == row
+    assert a.login_domain() == "example.com"
+
+
+def test_audit_entry_login_domain_none_when_no_at():
+    a = AuditEntry(id=2, event_type="delivery", login="not-an-email")
+    assert a.login_domain() is None
+    assert AuditEntry(id=3, event_type="delivery", login=None).login_domain() is None
