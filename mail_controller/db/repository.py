@@ -6,6 +6,7 @@ from mail_controller.exception.api_exceptions import ConflictError, Unprocessabl
 from mail_controller.domain.domain import Domain
 from mail_controller.domain.address import DomainName, EmailAddress
 from mail_controller.domain.mailbox import Mailbox
+from mail_controller.domain.forwarding import Forwarding
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"
@@ -131,33 +132,33 @@ def delete_user(cur, email: EmailAddress) -> dict | None:
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
-def list_forwardings(cur, source=None, domain=None, term=None) -> list[dict]:
+def list_forwardings(cur, source=None, domain=None, term=None) -> list[Forwarding]:
     clauses, params = [], {}
     if source:
         clauses.append("source = %(src)s")
-        params["src"] = source
+        params["src"] = source.value if isinstance(source, EmailAddress) else source
     if domain:
         clauses.append("split_part(source, '@', 2) = %(dom)s")
-        params["dom"] = domain
+        params["dom"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
         clauses.append("(source ILIKE %(flt)s OR destination ILIKE %(flt)s)")
         params["flt"] = f"%{term}%"
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_FWD_COLS} FROM forwardings{where} ORDER BY source, destination", params)
-    return cur.fetchall()
+    return [Forwarding.from_row(r) for r in cur.fetchall()]
 
 
-def create_forwarding(cur, source, destination, keep_copy) -> dict:
+def create_forwarding(cur, fwd: Forwarding) -> Forwarding:
     try:
         cur.execute(
             f"INSERT INTO forwardings (source, destination, keep_copy) "
             f"VALUES (%(s)s, %(d)s, %(k)s) RETURNING {_FWD_COLS}",
-            {"s": source, "d": destination, "k": keep_copy},
+            {"s": fwd.source.value, "d": fwd.destination.value, "k": fwd.keep_copy},
         )
     except errors.UniqueViolation:
         raise ConflictError(msg="Forwarding already exists",
-                            detail={"source": source, "destination": destination})
-    return cur.fetchone()
+                            detail={"source": fwd.source.value, "destination": fwd.destination.value})
+    return Forwarding.from_row(cur.fetchone())
 
 
 def delete_forwarding(cur, fid: int) -> bool:

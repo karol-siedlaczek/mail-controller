@@ -246,3 +246,24 @@ def test_create_user_binds_email_and_hash():
     assert "alice@example.com" in cur.all_sql_params()
     assert "{ARGON2ID}$hash" in cur.all_sql_params()
     assert result == Mailbox.from_row(_USER_ROW)
+
+
+# ── forwarding entity tests ──────────────────────────────────────────────────
+from mail_controller.domain.forwarding import Forwarding
+
+_FWD_ROW = {"id": 3, "source": "a@example.com", "destination": "b@elsewhere.test",
+            "keep_copy": False, "active": True, "created_at": None}
+
+
+def test_list_forwardings_returns_entities():
+    cur = FakeCursor(rows=[_FWD_ROW])
+    assert repo.list_forwardings(cur) == [Forwarding.from_row(_FWD_ROW)]
+
+
+def test_create_forwarding_binds_values_and_returns_entity():
+    cur = FakeCursor(rows=[_FWD_ROW])
+    fwd = Forwarding(source=EmailAddress("a@example.com"),
+                     destination=EmailAddress("b@elsewhere.test"), keep_copy=False)
+    result = repo.create_forwarding(cur, fwd)
+    assert "a@example.com" in cur.all_sql_params()
+    assert result == Forwarding.from_row(_FWD_ROW)
