@@ -1,0 +1,13 @@
+from datetime import datetime, timezone
+from mail_controller.domain.domain import Domain
+from mail_controller.domain.address import DomainName
+
+_TS = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_domain_from_row_to_dict_roundtrip():
+    row = {"id": 1, "domain": "example.com", "dkim_selector": "default",
+           "active": True, "created_at": _TS}
+    d = Domain.from_row(row)
+    assert d.name == DomainName("example.com")
+    assert d.to_dict() == row  # exact key/value contract
