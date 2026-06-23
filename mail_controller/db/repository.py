@@ -3,6 +3,8 @@ user data. Reads/writes the mail-server schema via the mail_admin_rw role."""
 import psycopg2
 from psycopg2 import errors
 from mail_controller.exception.api_exceptions import ConflictError, UnprocessableError
+from mail_controller.domain.domain import Domain
+from mail_controller.domain.address import DomainName
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"
@@ -13,41 +15,43 @@ _AUDIT_COLS = ('id, event_type, success, login, host(src_ip) AS src_ip, host, '
 
 
 # ── domains ────────────────────────────────────────────────────────────────
-def list_domains(cur, term=None) -> list[dict]:
+def list_domains(cur, term=None) -> list[Domain]:
     where, params = "", {}
     if term:
         where = " WHERE domain ILIKE %(flt)s"
         params["flt"] = f"%{term}%"
     cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains{where} ORDER BY domain", params)
-    return cur.fetchall()
+    return [Domain.from_row(r) for r in cur.fetchall()]
 
 
-def get_domain(cur, domain: str) -> dict | None:
-    cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains WHERE domain = %(d)s", {"d": domain})
-    return cur.fetchone()
+def get_domain(cur, name: DomainName) -> Domain | None:
+    cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains WHERE domain = %(d)s", {"d": name.value})
+    row = cur.fetchone()
+    return Domain.from_row(row) if row else None
 
 
-def create_domain(cur, domain: str, dkim_selector: str, active: bool) -> dict:
+def create_domain(cur, domain: Domain) -> Domain:
     try:
         cur.execute(
             f"INSERT INTO domains (domain, dkim_selector, active) "
             f"VALUES (%(d)s, %(s)s, %(a)s) RETURNING {_DOMAIN_COLS}",
-            {"d": domain, "s": dkim_selector, "a": active},
+            {"d": domain.name.value, "s": domain.dkim_selector, "a": domain.active},
         )
     except errors.UniqueViolation:
-        raise ConflictError(msg="Domain already exists", detail={"domain": domain})
-    return cur.fetchone()
+        raise ConflictError(msg="Domain already exists", detail={"domain": domain.name.value})
+    return Domain.from_row(cur.fetchone())
 
 
-def update_domain(cur, domain: str, dkim_selector, active) -> dict | None:
+def update_domain(cur, name: DomainName, dkim_selector, active) -> Domain | None:
     cur.execute(
         f"UPDATE domains SET "
         f"dkim_selector = COALESCE(%(s)s, dkim_selector), "
         f"active = COALESCE(%(a)s, active) "
         f"WHERE domain = %(d)s RETURNING {_DOMAIN_COLS}",
-        {"d": domain, "s": dkim_selector, "a": active},
+        {"d": name.value, "s": dkim_selector, "a": active},
     )
-    return cur.fetchone()
+    row = cur.fetchone()
+    return Domain.from_row(row) if row else None
 
 
 def delete_domain(cur, domain: str) -> bool:

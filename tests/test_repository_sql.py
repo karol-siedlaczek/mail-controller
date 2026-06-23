@@ -181,3 +181,26 @@ def test_delete_user_absent_returns_none_and_skips_cascade():
     assert len(cur.executed) == 1  # only the users DELETE ran; no cascade
     assert "forwardings" not in cur.all_sql.lower()
     assert "sender_login_maps" not in cur.all_sql.lower()
+
+
+# ── domain entity tests ──────────────────────────────────────────────────────
+from mail_controller.domain.domain import Domain
+from mail_controller.domain.address import DomainName
+
+_DOMAIN_ROW = {"id": 1, "domain": "example.com", "dkim_selector": "default",
+               "active": True, "created_at": None}
+
+
+def test_list_domains_returns_domain_entities():
+    cur = FakeCursor(rows=[_DOMAIN_ROW])
+    result = repo.list_domains(cur)
+    assert result == [Domain.from_row(_DOMAIN_ROW)]
+
+
+def test_create_domain_binds_value_and_returns_entity():
+    cur = FakeCursor(rows=[_DOMAIN_ROW])
+    entity = Domain(name=DomainName("example.com"), dkim_selector="default", active=True)
+    result = repo.create_domain(cur, entity)
+    _, params = cur.executed[-1]
+    assert "example.com" in params.values()
+    assert result == Domain.from_row(_DOMAIN_ROW)
