@@ -323,4 +323,5 @@ def list_audit() -> Response:
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         rows = repo.list_audit(cur, login=login, event_type=event_type, since=since, until=until, limit=limit)
-    return build_response(200, data=ctx.filter_readable(rows, "login"))
+    visible = ctx.filter_readable(rows, lambda a: a.login_domain())
+    return build_response(200, data=[a.to_dict() for a in visible])
