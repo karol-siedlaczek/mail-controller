@@ -7,6 +7,7 @@ from mail_controller.domain.domain import Domain
 from mail_controller.domain.address import DomainName, EmailAddress
 from mail_controller.domain.mailbox import Mailbox
 from mail_controller.domain.forwarding import Forwarding
+from mail_controller.domain.sender_login import SenderLogin
 
 _USER_COLS = "id, email, quota_bytes, active, created_at, domain_id"
 _DOMAIN_COLS = "id, domain, dkim_selector, active, created_at"
@@ -167,11 +168,11 @@ def delete_forwarding(cur, fid: int) -> bool:
 
 
 # ── sender_login_maps ────────────────────────────────────────────────────────
-def list_sender_logins(cur, domain=None, term=None) -> list[dict]:
+def list_sender_logins(cur, domain=None, term=None) -> list[SenderLogin]:
     clauses, params = [], {}
     if domain:
         clauses.append("split_part(allowed_sender, '@', 2) = %(d)s")
-        params["d"] = domain
+        params["d"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
         clauses.append("(login_email ILIKE %(flt)s OR allowed_sender ILIKE %(flt)s)")
         params["flt"] = f"%{term}%"
@@ -181,20 +182,21 @@ def list_sender_logins(cur, domain=None, term=None) -> list[dict]:
         f"ORDER BY allowed_sender, login_email",
         params,
     )
-    return cur.fetchall()
+    return [SenderLogin.from_row(r) for r in cur.fetchall()]
 
 
-def create_sender_login(cur, login_email, allowed_sender) -> dict:
+def create_sender_login(cur, grant: SenderLogin) -> SenderLogin:
     try:
         cur.execute(
             f"INSERT INTO sender_login_maps (login_email, allowed_sender) "
             f"VALUES (%(l)s, %(a)s) RETURNING {_SLM_COLS}",
-            {"l": login_email, "a": allowed_sender},
+            {"l": grant.login_email.value, "a": grant.allowed_sender.value},
         )
     except errors.UniqueViolation:
         raise ConflictError(msg="Sender-login grant already exists",
-                            detail={"login_email": login_email, "allowed_sender": allowed_sender})
-    return cur.fetchone()
+                            detail={"login_email": grant.login_email.value,
+                                    "allowed_sender": grant.allowed_sender.value})
+    return SenderLogin.from_row(cur.fetchone())
 
 
 def delete_sender_login(cur, sid: int) -> bool:

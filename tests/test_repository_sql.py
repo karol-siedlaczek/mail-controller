@@ -267,3 +267,24 @@ def test_create_forwarding_binds_values_and_returns_entity():
     result = repo.create_forwarding(cur, fwd)
     assert "a@example.com" in cur.all_sql_params()
     assert result == Forwarding.from_row(_FWD_ROW)
+
+
+# ── sender_login entity tests ────────────────────────────────────────────────
+from mail_controller.domain.sender_login import SenderLogin
+
+_SLM_ROW = {"id": 9, "login_email": "ops@example.com", "allowed_sender": "boss@example.com",
+            "active": True, "created_at": None}
+
+
+def test_list_sender_logins_returns_entities():
+    cur = FakeCursor(rows=[_SLM_ROW])
+    assert repo.list_sender_logins(cur) == [SenderLogin.from_row(_SLM_ROW)]
+
+
+def test_create_sender_login_binds_values_and_returns_entity():
+    cur = FakeCursor(rows=[_SLM_ROW])
+    grant = SenderLogin(login_email=EmailAddress("ops@example.com"),
+                        allowed_sender=EmailAddress("boss@example.com"))
+    result = repo.create_sender_login(cur, grant)
+    assert "ops@example.com" in cur.all_sql_params()
+    assert result == SenderLogin.from_row(_SLM_ROW)
