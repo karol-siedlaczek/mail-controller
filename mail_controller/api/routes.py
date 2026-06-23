@@ -10,7 +10,8 @@ from mail_controller.conf.config import Config
 from mail_controller.db.pool import Database
 from mail_controller.db import repository as repo
 from mail_controller.domain.permission import PermissionAction
-from mail_controller.domain.address import normalize_email, normalize_domain, domain_of
+from mail_controller.domain.address import normalize_email, normalize_domain, domain_of, DomainName, EmailAddress
+from mail_controller.domain.domain import Domain
 from mail_controller.security.password import hash_password
 from mail_controller.exception.api_exceptions import ResourceNotFoundError, InvalidRequestError
 
@@ -60,71 +61,70 @@ def token_identity() -> Response:
 def list_domains() -> Response:
     ctx = Context.authenticate()
     term = query_str("filter", default=None)
-    
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         rows = repo.list_domains(cur, term=term)
-        
-    return build_response(200, data=ctx.filter_readable(rows, "domain"))
+    visible = ctx.filter_readable(rows, lambda d: d.name.value)
+    return build_response(200, data=[d.to_dict() for d in visible])
 
 
 @api.route("/api/domains", methods=["POST"])
 def create_domain() -> Response:
     ctx = Context.authenticate()
     body = json_body()
-    domain = normalize_domain(json_body_field(body, "domain"))
-    ctx.require(domain, PermissionAction.WRITE)
+    name = DomainName.parse(json_body_field(body, "domain"))
+    ctx.require(name.value, PermissionAction.WRITE)
     dkim_selector = json_body_field(body, "dkim_selector", required=False) or "default"
     active = json_body_field(body, "active", required=False)
     active = True if active is None else bool(active)
-    
+    entity = Domain(name=name, dkim_selector=dkim_selector, active=active)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.create_domain(cur, domain, dkim_selector, active)
-    return build_response(201, data=row)
+        row = repo.create_domain(cur, entity)
+    return build_response(201, data=row.to_dict())
 
 
 @api.route("/api/domains/<domain>", methods=["GET"])
 def get_domain(domain: str) -> Response:
-    domain = normalize_domain(domain)
+    name = DomainName.parse(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, PermissionAction.READ)
+    ctx.require(name.value, PermissionAction.READ)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.get_domain(cur, domain)
+        row = repo.get_domain(cur, name)
     if not row:
-        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": domain})
-    return build_response(200, data=row)
+        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": name.value})
+    return build_response(200, data=row.to_dict())
 
 
 @api.route("/api/domains/<domain>", methods=["PATCH"])
 def update_domain(domain: str) -> Response:
-    domain = normalize_domain(domain)
+    name = DomainName.parse(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, PermissionAction.WRITE)
+    ctx.require(name.value, PermissionAction.WRITE)
     body = json_body()
     dkim_selector = json_body_field(body, "dkim_selector", required=False)
     active = json_body_field(body, "active", required=False)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.update_domain(cur, domain, dkim_selector,
+        row = repo.update_domain(cur, name, dkim_selector,
                                  None if active is None else bool(active))
     if not row:
-        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": domain})
-    return build_response(200, data=row)
+        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": name.value})
+    return build_response(200, data=row.to_dict())
 
 
 @api.route("/api/domains/<domain>", methods=["DELETE"])
 def delete_domain(domain: str) -> Response:
-    domain = normalize_domain(domain)
+    name = DomainName.parse(domain)
     ctx = Context.authenticate()
-    ctx.require(domain, PermissionAction.WRITE)
+    ctx.require(name.value, PermissionAction.WRITE)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        ok = repo.delete_domain(cur, domain)
+        ok = repo.delete_domain(cur, name.value)
     if not ok:
-        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": domain})
-    return build_response(200, data={"domain": domain, "deleted": True})
+        raise ResourceNotFoundError(msg="Domain not found", detail={"domain": name.value})
+    return build_response(200, data={"domain": name.value, "deleted": True})
 
 
 # ── users ────────────────────────────────────────────────────────────────────
