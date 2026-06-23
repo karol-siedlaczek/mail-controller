@@ -12,6 +12,7 @@ from mail_controller.db import repository as repo
 from mail_controller.domain.permission import PermissionAction
 from mail_controller.domain.address import normalize_email, normalize_domain, domain_of, DomainName, EmailAddress
 from mail_controller.domain.domain import Domain
+from mail_controller.domain.mailbox import Mailbox
 from mail_controller.security.password import hash_password
 from mail_controller.exception.api_exceptions import ResourceNotFoundError, InvalidRequestError
 
@@ -133,90 +134,91 @@ def list_users() -> Response:
     ctx = Context.authenticate()
     domain = query_str("domain", default=None)
     term = query_str("filter", default=None)
-    if domain:
-        domain = normalize_domain(domain)
+    dom = DomainName.parse(domain) if domain else None
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_users(cur, domain=domain, term=term)
-    return build_response(200, data=ctx.filter_readable(rows, "email"))
+        rows = repo.list_users(cur, domain=dom, term=term)
+    visible = ctx.filter_readable(rows, lambda m: m.email.domain.value)
+    return build_response(200, data=[m.to_dict() for m in visible])
 
 
 @api.route("/api/users", methods=["POST"])
 def create_user() -> Response:
     ctx = Context.authenticate()
     body = json_body()
-    email = normalize_email(json_body_field(body, "email"))
-    ctx.require(domain_of(email), PermissionAction.WRITE)
+    email = EmailAddress.parse(json_body_field(body, "email"))
+    ctx.require(email.domain.value, PermissionAction.WRITE)
     password = json_body_field(body, "password")
     quota_bytes = json_body_field(body, "quota_bytes", required=False, cast_fn=int) or 0
     active = json_body_field(body, "active", required=False)
     active = True if active is None else bool(active)
     conf = Config.get_from_global_context()
     pw_hash = hash_password(password, conf.password_scheme)
+    mailbox = Mailbox(email=email, quota_bytes=quota_bytes, active=active)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.create_user(cur, email, domain_of(email), pw_hash, quota_bytes, active)
-    return build_response(201, data=row)
+        row = repo.create_user(cur, mailbox, pw_hash)
+    return build_response(201, data=row.to_dict())
 
 
 @api.route("/api/users/<email>", methods=["GET"])
 def get_user(email: str) -> Response:
-    email = normalize_email(email)
+    addr = EmailAddress.parse(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), PermissionAction.READ)
+    ctx.require(addr.domain.value, PermissionAction.READ)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.get_user(cur, email)
+        row = repo.get_user(cur, addr)
     if not row:
-        raise ResourceNotFoundError(msg="User not found", detail={"email": email})
-    return build_response(200, data=row)
+        raise ResourceNotFoundError(msg="User not found", detail={"email": addr.value})
+    return build_response(200, data=row.to_dict())
 
 
 @api.route("/api/users/<email>", methods=["PATCH"])
 def update_user(email: str) -> Response:
-    email = normalize_email(email)
+    addr = EmailAddress.parse(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), PermissionAction.WRITE)
+    ctx.require(addr.domain.value, PermissionAction.WRITE)
     body = json_body()
     quota_bytes = json_body_field(body, "quota_bytes", required=False, cast_fn=int)
     active = json_body_field(body, "active", required=False)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.update_user(cur, email, quota_bytes,
+        row = repo.update_user(cur, addr, quota_bytes,
                                None if active is None else bool(active))
     if not row:
-        raise ResourceNotFoundError(msg="User not found", detail={"email": email})
-    return build_response(200, data=row)
+        raise ResourceNotFoundError(msg="User not found", detail={"email": addr.value})
+    return build_response(200, data=row.to_dict())
 
 
 @api.route("/api/users/<email>/password", methods=["POST"])
 def set_password(email: str) -> Response:
-    email = normalize_email(email)
+    addr = EmailAddress.parse(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), PermissionAction.WRITE)
+    ctx.require(addr.domain.value, PermissionAction.WRITE)
     body = json_body()
     password = json_body_field(body, "password")
     conf = Config.get_from_global_context()
     pw_hash = hash_password(password, conf.password_scheme)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        ok = repo.set_user_password(cur, email, pw_hash)
+        ok = repo.set_user_password(cur, addr, pw_hash)
     if not ok:
-        raise ResourceNotFoundError(msg="User not found", detail={"email": email})
-    return build_response(200, data={"email": email, "password_set": True})
+        raise ResourceNotFoundError(msg="User not found", detail={"email": addr.value})
+    return build_response(200, data={"email": addr.value, "password_set": True})
 
 
 @api.route("/api/users/<email>", methods=["DELETE"])
 def delete_user(email: str) -> Response:
-    email = normalize_email(email)
+    addr = EmailAddress.parse(email)
     ctx = Context.authenticate()
-    ctx.require(domain_of(email), PermissionAction.WRITE)
+    ctx.require(addr.domain.value, PermissionAction.WRITE)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        result = repo.delete_user(cur, email)
+        result = repo.delete_user(cur, addr)
     if result is None:
-        raise ResourceNotFoundError(msg="User not found", detail={"email": email})
-    return build_response(200, data={"email": email, "deleted": True, **result})
+        raise ResourceNotFoundError(msg="User not found", detail={"email": addr.value})
+    return build_response(200, data={"email": addr.value, "deleted": True, **result})
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
