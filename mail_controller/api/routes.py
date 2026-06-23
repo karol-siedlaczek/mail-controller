@@ -10,7 +10,7 @@ from mail_controller.conf.config import Config
 from mail_controller.db.pool import Database
 from mail_controller.db import repository as repo
 from mail_controller.domain.permission import PermissionAction
-from mail_controller.domain.address import normalize_email, normalize_domain, domain_of, DomainName, EmailAddress
+from mail_controller.domain.address import DomainName, EmailAddress
 from mail_controller.domain.forwarding import Forwarding
 from mail_controller.domain.domain import Domain
 from mail_controller.domain.mailbox import Mailbox
