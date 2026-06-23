@@ -11,6 +11,7 @@ from mail_controller.db.pool import Database
 from mail_controller.db import repository as repo
 from mail_controller.domain.permission import PermissionAction
 from mail_controller.domain.address import normalize_email, normalize_domain, domain_of, DomainName, EmailAddress
+from mail_controller.domain.forwarding import Forwarding
 from mail_controller.domain.domain import Domain
 from mail_controller.domain.mailbox import Mailbox
 from mail_controller.security.password import hash_password
@@ -228,29 +229,29 @@ def list_forwardings() -> Response:
     source = query_str("source", default=None)
     domain = query_str("domain", default=None)
     term = query_str("filter", default=None)
-    if source:
-        source = normalize_email(source)
-    if domain:
-        domain = normalize_domain(domain)
+    src = EmailAddress.parse(source) if source else None
+    dom = DomainName.parse(domain) if domain else None
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        rows = repo.list_forwardings(cur, source=source, domain=domain, term=term)
-    return build_response(200, data=ctx.filter_readable(rows, "source"))
+        rows = repo.list_forwardings(cur, source=src, domain=dom, term=term)
+    visible = ctx.filter_readable(rows, lambda f: f.source.domain.value)
+    return build_response(200, data=[f.to_dict() for f in visible])
 
 
 @api.route("/api/forwardings", methods=["POST"])
 def create_forwarding() -> Response:
     ctx = Context.authenticate()
     body = json_body()
-    source = normalize_email(json_body_field(body, "source"))
-    destination = normalize_email(json_body_field(body, "destination"))
-    ctx.require(domain_of(source), PermissionAction.WRITE)
+    source = EmailAddress.parse(json_body_field(body, "source"))
+    destination = EmailAddress.parse(json_body_field(body, "destination"))
+    ctx.require(source.domain.value, PermissionAction.WRITE)
     keep_copy = json_body_field(body, "keep_copy", required=False)
     keep_copy = False if keep_copy is None else bool(keep_copy)
+    fwd = Forwarding(source=source, destination=destination, keep_copy=keep_copy)
     db = Database.get_from_global_context()
     with db.transaction() as cur:
-        row = repo.create_forwarding(cur, source, destination, keep_copy)
-    return build_response(201, data=row)
+        row = repo.create_forwarding(cur, fwd)
+    return build_response(201, data=row.to_dict())
 
 
 @api.route("/api/forwardings/<int:fid>", methods=["DELETE"])
@@ -259,10 +260,10 @@ def delete_forwarding(fid: int) -> Response:
     db = Database.get_from_global_context()
     with db.transaction() as cur:
         rows = repo.list_forwardings(cur)
-        target = next((r for r in rows if r["id"] == fid), None)
+        target = next((r for r in rows if r.id == fid), None)
         if not target:
             raise ResourceNotFoundError(msg="Forwarding not found", detail={"id": fid})
-        ctx.require(domain_of(target["source"]), PermissionAction.WRITE)
+        ctx.require(target.source.domain.value, PermissionAction.WRITE)
         repo.delete_forwarding(cur, fid)
     return build_response(200, data={"id": fid, "deleted": True})
 
