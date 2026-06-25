@@ -1,24 +1,13 @@
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, TypeVar
 from http import HTTPStatus
 from flask import Response, jsonify, request
 from mail_controller.domain.identity import Identity
-from mail_controller.conf.config import Config
-from mail_controller.exception.auth_exceptions import (
-    AuthTokenMissingException, AuthFailedException, AuthIpNotAllowedException,
-)
+from mail_controller.domain.permission import PermissionAction
 
 log = logging.getLogger(__name__)
-
-
-def get_remote_ip() -> str | None:
-    if request.remote_addr:
-        return request.remote_addr
-    
-    xff = request.headers.get("X-Forwarded-For", "")
-    return xff.split(",")[0].strip() if xff else None
-
+T = TypeVar("T")
 
 def log_request(msg: str, *, identity: Identity | None = None, level: str = "info") -> None:
     level = level.lower()
@@ -59,31 +48,63 @@ def build_response(
     return response
 
 
-def require_auth(remote_ip: str | None) -> Identity:
-    auth_header = request.headers.get("Authorization", None)
-    
-    if not auth_header or auth_header == "":
-        raise AuthTokenMissingException("Authorization header is missing or empty")
-    elif not auth_header.startswith("Bearer "):
-        raise AuthTokenMissingException("Authorization header does not start with 'Bearer '")
+def filter_rows_to_readable(
+    ctx, rows: list[T], domain_fn: Callable[[T], str | None], action: PermissionAction
+) -> list[T]:
+    """Keep only rows whose domain the identity may access with `action`.
 
-    token_raw = auth_header[len("Bearer "):].strip()
-    
-    try:
-        identity_id, identity_token = token_raw.split(".", 1)
-        if not identity_id or not identity_token:
-            raise ValueError()
-    except ValueError:
-        raise AuthFailedException("Invalid token format, expected: 'Authorization: Bearer <id>.<token>'")
+    `domain_fn` extracts a row's domain (or None for domain-less rows, e.g. audit
+    entries with no login). Domain-less rows are visible only to a "*"-scope holder
+    of `action`.
+    """
+    out: list[T] = []
+    for row in rows:
+        domain = domain_fn(row)
+        if domain is None:
+            if ctx._has_star(action):
+                out.append(row)
+            continue
+        if ctx.identity.allows(domain, action):
+            out.append(row)
+    return out
 
-    conf = Config.get_from_global_context()
-    identity = next((i for i in conf.identities if i.id == identity_id), None)
-    
-    if identity is None:
-        raise AuthFailedException(f"Unknown identity '{identity_id}'")
-    if not identity.is_token_valid(conf.hmac_key, identity_token):
-        raise AuthFailedException(f"Invalid token for identity '{identity_id}'")
-    if not identity.is_ip_allowed(remote_ip):
-        raise AuthIpNotAllowedException(remote_ip)
-    
-    return identity
+
+def render_metrics(*, build_info: dict, totals: dict, traffic: dict) -> str:
+    """Render Prometheus text-format metrics (mailctl_* gauges)."""
+    def esc(value: object) -> str:
+        return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+    lines: list[str] = []
+
+    lines.append("# HELP mailctl_build_info Build information.")
+    lines.append("# TYPE mailctl_build_info gauge")
+    lines.append(
+        f'mailctl_build_info{{version="{esc(build_info.get("version", ""))}",'
+        f'git_sha="{esc(build_info.get("git_sha", ""))}"}} 1'
+    )
+
+    for key, help_text in (
+        ("domains", "Number of domains readable by the token."),
+        ("users", "Number of mailboxes readable by the token."),
+        ("forwardings", "Number of forwardings readable by the token."),
+        ("sender_logins", "Number of send-as grants readable by the token."),
+    ):
+        metric = f"mailctl_{key}_total"
+        lines.append(f"# HELP {metric} {help_text}")
+        lines.append(f"# TYPE {metric} gauge")
+        lines.append(f"{metric} {int(totals.get(key, 0))}")
+
+    lines.append("# HELP mailctl_auth_events_5m Authentication events in the last 5 minutes.")
+    lines.append("# TYPE mailctl_auth_events_5m gauge")
+    lines.append(f'mailctl_auth_events_5m{{success="true"}} {int(traffic.get("auth_success", 0))}')
+    lines.append(f'mailctl_auth_events_5m{{success="false"}} {int(traffic.get("auth_failure", 0))}')
+
+    lines.append("# HELP mailctl_send_events_5m Outbound (send) events in the last 5 minutes.")
+    lines.append("# TYPE mailctl_send_events_5m gauge")
+    lines.append(f"mailctl_send_events_5m {int(traffic.get('send', 0))}")
+
+    lines.append("# HELP mailctl_delivery_events_5m Inbound (delivery) events in the last 5 minutes.")
+    lines.append("# TYPE mailctl_delivery_events_5m gauge")
+    lines.append(f"mailctl_delivery_events_5m {int(traffic.get('delivery', 0))}")
+
+    return "\n".join(lines) + "\n"

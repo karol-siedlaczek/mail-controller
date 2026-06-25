@@ -60,10 +60,10 @@ def client(monkeypatch, tmp_path):
         "identities:\n"
         "  - id: admin\n"
         "    allowed_cidrs: [\"0.0.0.0/0\"]\n"
-        "    permissions: [\"*:write\"]\n"
+        "    permissions: [\"*:*\"]\n"
         "  - id: ro\n"
         "    allowed_cidrs: [\"0.0.0.0/0\"]\n"
-        "    permissions: [\"other.com:read\"]\n"
+        "    permissions: [\"other.com:read_domain\"]\n"
     )
     monkeypatch.setenv("HMAC_KEY_B64", KEY_B64)
     monkeypatch.setenv("PG_HOST", "db")
