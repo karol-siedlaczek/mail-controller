@@ -7,8 +7,18 @@ from mail_controller.validation.require import Require
 
 class PermissionAction(Enum):
     ANY = "*"
-    READ = "read"
-    WRITE = "write"
+    READ = "read"      # legacy — removed in the cleanup task
+    WRITE = "write"    # legacy — removed in the cleanup task
+    READ_DOMAIN = "read_domain"
+    WRITE_DOMAIN = "write_domain"
+    READ_USER = "read_user"
+    WRITE_USER = "write_user"
+    READ_FORWARDING = "read_forwarding"
+    WRITE_FORWARDING = "write_forwarding"
+    READ_SENDER_LOGIN = "read_sender_login"
+    WRITE_SENDER_LOGIN = "write_sender_login"
+    READ_AUDIT = "read_audit"
+    READ_METRICS = "read_metrics"
 
     @classmethod
     def values(cls) -> list[str]:
@@ -42,19 +52,25 @@ class Permission:
         return cls(scope, PermissionAction(action_raw))
 
 
-    def _scope_matches(self, domain: str) -> bool:
-        if self.scope == "*":
-            return True
-        return fnmatch.fnmatch(domain.lower(), self.scope.lower())
-
-
-    def _action_satisfies(self, action: PermissionAction) -> bool:
+    def allows_action(self, action: "PermissionAction") -> bool:
+        # ANY satisfies every action.
         if self.action == PermissionAction.ANY:
             return True
-        if self.action == PermissionAction.WRITE:
-            return action in (PermissionAction.READ, PermissionAction.WRITE)
-        return action == PermissionAction.READ
+        # Exact match.
+        if self.action == action:
+            return True
+        # Legacy generic write ⇒ read (removed with READ/WRITE in the cleanup task).
+        if self.action == PermissionAction.WRITE and action == PermissionAction.READ:
+            return True
+        # Per-entity: write_<entity> implies read_<entity>.
+        return (self.action.value.startswith("write_")
+                and action.value == "read_" + self.action.value[len("write_"):])
 
-
-    def allows(self, domain: str, action: PermissionAction) -> bool:
-        return self._scope_matches(domain) and self._action_satisfies(action)
+    def allows(self, domain: str, action: "PermissionAction") -> bool:
+        # Action gate.
+        if not self.allows_action(action):
+            return False
+        # Scope gate: "*", exact domain, or glob pattern (fnmatch).
+        if self.scope == "*" or self.scope == domain.lower():
+            return True
+        return fnmatch.fnmatch(domain.lower(), self.scope.lower())
