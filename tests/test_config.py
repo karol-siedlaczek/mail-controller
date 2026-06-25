@@ -36,7 +36,7 @@ def test_load_ok(tmp_path, monkeypatch):
         identities:
           - id: admin
             allowed_cidrs: ["10.0.0.0/8"]
-            permissions: ["*:write"]
+            permissions: ["*:*"]
     """)
     _base_env(monkeypatch, conf)
     cfg = Config.load()
@@ -80,10 +80,10 @@ def test_duplicate_identity_id(tmp_path, monkeypatch):
         identities:
           - id: admin
             allowed_cidrs: ["10.0.0.0/8"]
-            permissions: ["*:write"]
+            permissions: ["*:*"]
           - id: admin
             allowed_cidrs: ["10.0.0.0/8"]
-            permissions: ["*:read"]
+            permissions: ["*:*"]
     """)
     _base_env(monkeypatch, conf)
     with pytest.raises(ValidationError):

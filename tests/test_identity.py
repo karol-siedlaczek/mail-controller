@@ -18,7 +18,7 @@ def _identity(monkeypatch, token="s3cret", cidrs=None, perms=None):
     return Identity.from_dict({
         "id": "admin",
         "allowed_cidrs": cidrs if cidrs is not None else ["10.0.0.0/8", "127.0.0.1/32"],
-        "permissions": perms if perms is not None else ["*:write"],
+        "permissions": perms if perms is not None else ["*:*"],
     })
 
 
@@ -31,7 +31,7 @@ def test_from_dict_ok(monkeypatch):
 def test_missing_token_env(monkeypatch):
     monkeypatch.delenv("TOKEN_ADMIN_HMAC", raising=False)
     with pytest.raises(ValidationError):
-        Identity.from_dict({"id": "admin", "allowed_cidrs": ["10.0.0.0/8"], "permissions": ["*:read"]})
+        Identity.from_dict({"id": "admin", "allowed_cidrs": ["10.0.0.0/8"], "permissions": ["*:*"]})
 
 
 def test_token_valid(monkeypatch):
@@ -49,7 +49,7 @@ def test_ip_allowed(monkeypatch):
 
 
 def test_allows_delegates_to_permissions(monkeypatch):
-    ident = _identity(monkeypatch, perms=["example.com:read"])
-    assert ident.allows("example.com", PermissionAction.READ)
-    assert not ident.allows("example.com", PermissionAction.WRITE)
-    assert not ident.allows("other.com", PermissionAction.READ)
+    ident = _identity(monkeypatch, perms=["example.com:read_domain"])
+    assert ident.allows("example.com", PermissionAction.READ_DOMAIN)
+    assert not ident.allows("example.com", PermissionAction.WRITE_DOMAIN)
+    assert not ident.allows("other.com", PermissionAction.READ_DOMAIN)

@@ -7,8 +7,6 @@ from mail_controller.validation.require import Require
 
 class PermissionAction(Enum):
     ANY = "*"
-    READ = "read"      # legacy — removed in the cleanup task
-    WRITE = "write"    # legacy — removed in the cleanup task
     READ_DOMAIN = "read_domain"
     WRITE_DOMAIN = "write_domain"
     READ_USER = "read_user"
@@ -58,9 +56,6 @@ class Permission:
             return True
         # Exact match.
         if self.action == action:
-            return True
-        # Legacy generic write ⇒ read (removed with READ/WRITE in the cleanup task).
-        if self.action == PermissionAction.WRITE and action == PermissionAction.READ:
             return True
         # Per-entity: write_<entity> implies read_<entity>.
         return (self.action.value.startswith("write_")

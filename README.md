@@ -151,18 +151,18 @@ identities:
       - "10.0.0.0/8"
       - "127.0.0.1/32"
     permissions:
-      - "*:write"
+      - "*:*"
   - id: "example"
     allowed_cidrs:
       - "10.20.0.0/16"
     permissions:
-      - "example.com:write"
-      - "*.example.com:read"
+      - "example.com:*"
+      - "*.example.com:read_domain"
   - id: "reader"
     allowed_cidrs:
       - "0.0.0.0/0"
     permissions:
-      - "*:read"
+      - "*:read_audit"
 ```
 
 ### Field meanings
@@ -171,7 +171,15 @@ identities:
 - `identities[].allowed_cidrs` - CIDR list allowed to make requests for this identity (IPv4 or IPv6).
 - `identities[].permissions` - permission entries in `"<scope>:<action>"` format, where:
   - `scope` - `*` (full admin) or a domain glob matched case-insensitively (`fnmatch`), e. g. `example.com`, `*.example.com`.
-  - `action` - `read`, `write` (implies `read`), or `*`.
+  - `action` - one of the per-entity actions, or `*` (all actions for the scope):
+    - `read_domain` / `write_domain`
+    - `read_user` / `write_user`
+    - `read_forwarding` / `write_forwarding`
+    - `read_sender_login` / `write_sender_login`
+    - `read_audit` (read-only)
+    - `read_metrics` (read-only; gates `/api/metrics`)
+    - each `write_<entity>` implies `read_<entity>`.
+  - **Breaking change:** the legacy generic `read` / `write` actions are no longer valid; migrate to the per-entity actions above (or `*` for full control over a scope).
 
 If you have identities such as `admin` and `example`, you must provide following environments:
 ```ini
@@ -259,7 +267,7 @@ Endpoints:
 
 Notes:
 - `password` is hashed server-side and never returned; the password hash is never included in any user response.
-- `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read`.
+- `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read_audit`.
 - **Error responses** follow the standard envelope: `{method, http_code, http_status, path, message, detail, data, timestamp}`. Schema violations and missing-domain FK surface as `422`, UNIQUE conflicts as `409`, missing resources as `404`, auth failures as `401`/`403`.
 
 Examples:

@@ -8,15 +8,15 @@ def p(s):
 
 
 def test_parse_write():
-    perm = p("example.com:write")
+    perm = p("example.com:write_domain")
     assert perm.scope == "example.com"
-    assert perm.action == PermissionAction.WRITE
+    assert perm.action == PermissionAction.WRITE_DOMAIN
 
 
 def test_parse_star_write():
-    perm = p("*:write")
+    perm = p("*:write_user")
     assert perm.scope == "*"
-    assert perm.action == PermissionAction.WRITE
+    assert perm.action == PermissionAction.WRITE_USER
 
 
 def test_parse_invalid_action():
@@ -29,32 +29,39 @@ def test_parse_missing_colon():
         p("example.com")
 
 
+def test_legacy_generic_actions_rejected():
+    with pytest.raises(ValidationError):
+        p("example.com:read")
+    with pytest.raises(ValidationError):
+        p("example.com:write")
+
+
 def test_write_implies_read():
-    perm = p("example.com:write")
-    assert perm.allows("example.com", PermissionAction.READ)
-    assert perm.allows("example.com", PermissionAction.WRITE)
+    perm = p("example.com:write_domain")
+    assert perm.allows("example.com", PermissionAction.READ_DOMAIN)
+    assert perm.allows("example.com", PermissionAction.WRITE_DOMAIN)
 
 
 def test_read_does_not_imply_write():
-    perm = p("example.com:read")
-    assert perm.allows("example.com", PermissionAction.READ)
-    assert not perm.allows("example.com", PermissionAction.WRITE)
+    perm = p("example.com:read_domain")
+    assert perm.allows("example.com", PermissionAction.READ_DOMAIN)
+    assert not perm.allows("example.com", PermissionAction.WRITE_DOMAIN)
 
 
 def test_star_scope_matches_any_domain():
-    perm = p("*:read")
-    assert perm.allows("anything.test", PermissionAction.READ)
+    perm = p("*:read_domain")
+    assert perm.allows("anything.test", PermissionAction.READ_DOMAIN)
 
 
 def test_glob_scope():
-    perm = p("*.example.com:write")
-    assert perm.allows("a.example.com", PermissionAction.WRITE)
-    assert not perm.allows("example.com", PermissionAction.WRITE)
+    perm = p("*.example.com:write_domain")
+    assert perm.allows("a.example.com", PermissionAction.WRITE_DOMAIN)
+    assert not perm.allows("example.com", PermissionAction.WRITE_DOMAIN)
 
 
 def test_exact_scope_no_cross_domain():
-    perm = p("example.com:write")
-    assert not perm.allows("other.com", PermissionAction.WRITE)
+    perm = p("example.com:write_domain")
+    assert not perm.allows("other.com", PermissionAction.WRITE_DOMAIN)
 
 
 def test_parse_per_entity_action():
