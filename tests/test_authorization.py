@@ -4,7 +4,7 @@ import hashlib
 import pytest
 from flask import Flask
 from mail_controller.domain.identity import Identity
-from mail_controller.domain.permission import Permission, PermissionAction
+from mail_controller.domain.permission.permission import Permission, PermissionAction
 from mail_controller.api.context import Context
 from mail_controller.api.helpers import filter_rows_to_readable
 from mail_controller.conf.config import Config
@@ -156,3 +156,15 @@ def test_filter_readable_uses_domain_accessor():
     rows = [{"d": "example.com"}, {"d": "other.test"}]
     visible = filter_rows_to_readable(ctx, rows, lambda r: r["d"], PermissionAction.READ_DOMAIN)
     assert visible == [{"d": "example.com"}]
+
+
+def test_get_remote_ip_returns_remote_addr_ignoring_xff(monkeypatch):
+    # With ProxyFix off (bare app), a forged X-Forwarded-For must be ignored;
+    # the allowlist must see the real TCP peer (REMOTE_ADDR).
+    ident = _ident(monkeypatch, "a", ["example.com:read_domain"])
+    app = _app_with(ident)
+    with app.test_request_context(
+        "/", environ_base={"REMOTE_ADDR": "9.9.9.9"},
+        headers={"X-Forwarded-For": "1.2.3.4"},
+    ):
+        assert Context().get_remote_ip() == "9.9.9.9"

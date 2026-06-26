@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from flask import request
 from mail_controller.domain.identity import Identity
-from mail_controller.domain.permission import PermissionAction
+from mail_controller.domain.permission.permission_action import PermissionAction
 from mail_controller.conf.config import Config
 from mail_controller.exception.api_exceptions import PermissionDeniedError
 from mail_controller.exception.auth_exceptions import (
@@ -54,12 +54,8 @@ class Context:
 
 
     def get_remote_ip(self) -> str | None:
-        if request.remote_addr:
-            return request.remote_addr
+        return request.remote_addr
 
-        xff = request.headers.get("X-Forwarded-For", "")
-        return xff.split(",")[0].strip() if xff else None
-    
 
     def require(self, domain: str, action: PermissionAction) -> None:
         if not self.identity.allows(domain, action):
