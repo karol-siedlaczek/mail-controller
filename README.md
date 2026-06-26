@@ -137,8 +137,11 @@ docker compose down
 | `PG_PASSWORD` | `string` | :x: | - | Password for `PG_USER` |
 | `PG_PASSWORD__FILE` | `string` | :x: | - | Path to a file containing the password for `PG_USER` (Docker secrets); alternative to `PG_PASSWORD` |
 | `PASSWORD_SCHEME` | `string` | :x: | `ARGON2ID` | Hashing scheme for new mailbox passwords (`ARGON2ID`, `BLF-CRYPT`) |
+| `TRUSTED_PROXY_HOPS` | `number` | :x: | `0` | Number of trusted reverse-proxy hops (integer ≥ 0). `0` ignores `X-Forwarded-For` and uses the direct TCP peer for the IP allowlist (`allowed_cidrs`) — spoof-safe. Trusts only the N rightmost `X-Forwarded-For` entries. |
 
 `HMAC_KEY_B64`, `PG_HOST`, `PG_DBNAME`, and `PG_USER` are required; the container will refuse to start if they are absent.
+
+> **Behind a reverse proxy** (nginx/HAProxy), set `TRUSTED_PROXY_HOPS` to the number of proxies in front of mail-controller (usually `1`). If left at the default `0`, the IP allowlist sees the proxy's IP instead of the client's and rejects legitimate requests (fails closed). Never set it higher than the actual proxy count, or clients could spoof `X-Forwarded-For`.
 
 ## Configuration
 `CONF_FILE` is a YAML file defining the identities (`identities`) the API will accept.
