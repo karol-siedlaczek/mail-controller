@@ -96,3 +96,35 @@ def test_short_hmac_key_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("HMAC_KEY_B64", base64.b64encode(b"tooshort").decode())
     with pytest.raises(ValidationError):
         Config.load()
+
+
+def test_trusted_proxy_hops_default_zero(tmp_path, monkeypatch):
+    conf = _write_conf(tmp_path, "identities: []\n")
+    _base_env(monkeypatch, conf)
+    monkeypatch.delenv("TRUSTED_PROXY_HOPS", raising=False)
+    cfg = Config.load()
+    assert cfg.trusted_proxy_hops == 0
+
+
+def test_trusted_proxy_hops_parsed(tmp_path, monkeypatch):
+    conf = _write_conf(tmp_path, "identities: []\n")
+    _base_env(monkeypatch, conf)
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "2")
+    cfg = Config.load()
+    assert cfg.trusted_proxy_hops == 2
+
+
+def test_trusted_proxy_hops_negative_rejected(tmp_path, monkeypatch):
+    conf = _write_conf(tmp_path, "identities: []\n")
+    _base_env(monkeypatch, conf)
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "-1")
+    with pytest.raises(ValidationError):
+        Config.load()
+
+
+def test_trusted_proxy_hops_non_integer_rejected(tmp_path, monkeypatch):
+    conf = _write_conf(tmp_path, "identities: []\n")
+    _base_env(monkeypatch, conf)
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "abc")
+    with pytest.raises(ValidationError):
+        Config.load()
