@@ -5,7 +5,7 @@ import logging
 from hashlib import sha256
 from dataclasses import dataclass
 from typing import Any
-from mail_controller.domain.permission import Permission, PermissionAction
+from mail_controller.domain.permission.permission import Permission, PermissionAction
 from mail_controller.validation.require import Require
 
 log = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ class Identity:
     hmac_hex: str
     allowed_cidrs: list[str]
     permissions: list[Permission]
+
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Identity":
@@ -69,8 +70,10 @@ class Identity:
             
         return False
 
+
     def allows(self, domain: str, action: PermissionAction) -> bool:
         return any(p.allows(domain, action) for p in self.permissions)
+
 
     def __str__(self) -> str:
         return self.id

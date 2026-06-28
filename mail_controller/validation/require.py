@@ -3,7 +3,7 @@ import os
 import base64
 import binascii
 import ipaddress
-import importlib.util
+import importlib.metadata
 from mail_controller.exception.validator_exceptions import ValidationError
 from pathlib import Path
 from typing import Any, Match, Type, TypeVar, Pattern, Iterable
@@ -231,10 +231,12 @@ class Require():
     def installed_module(
         field: str,
         val: str,
-        module_name: str,
+        module_name: str, 
         custom_err: str | None = None
     ) -> None:
-        if importlib.util.find_spec(module_name) is None:
+        try:
+            importlib.metadata.version(module_name)
+        except importlib.metadata.PackageNotFoundError:
             Require._raise_error(
                 default_err=f"Value '{field}={val}' requires module '{module_name}' to be installed",
                 custom_err=custom_err

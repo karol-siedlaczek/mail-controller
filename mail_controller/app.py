@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from flask import Flask, Response
 from werkzeug.exceptions import MethodNotAllowed, NotFound
+from werkzeug.middleware.proxy_fix import ProxyFix
 from mail_controller.conf.config import Config
 from mail_controller.db.pool import Database
 from mail_controller.api.routes import api as api_blueprint
@@ -25,6 +26,10 @@ def create_app(database: Database | None = None) -> Flask:
     setup_logging(config)
     setup_error_handlers(app)
     app.register_blueprint(api_blueprint)
+
+    if config.trusted_proxy_hops > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=config.trusted_proxy_hops)
+
     return app
 
 

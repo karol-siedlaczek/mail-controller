@@ -35,7 +35,7 @@ def query_list(
 def query_str(
     name: str,
     *,
-    default: str,
+    default: str = None,
     required: bool = False
 ) -> str | None:
     val = request.args.get(name)
@@ -56,16 +56,13 @@ def query_bool(
     *,
     default: bool = None,
     required: bool = False
-) -> bool:
+) -> bool | None:
     val = request.args.get(name)
 
     if val is None:
         if required:
             raise InvalidRequestError("Missing required query parameter", detail={ "parameter": name })
-        elif default:
-            return default
-        else:
-            return False
+        return default
 
     true_values = ["1", "true", "True", "yes", "Yes", ""]
     false_values = ["0", "false", "False", "no", "No"]

@@ -1,19 +1,7 @@
 import re
-import fnmatch
-from enum import Enum
 from dataclasses import dataclass
 from mail_controller.validation.require import Require
-
-
-class PermissionAction(Enum):
-    ANY = "*"
-    READ = "read"
-    WRITE = "write"
-
-    @classmethod
-    def values(cls) -> list[str]:
-        return [item.value for item in cls]
-
+from mail_controller.domain.permission.permission_action import PermissionAction
 
 @dataclass(frozen=True)
 class Permission:
@@ -42,19 +30,31 @@ class Permission:
         return cls(scope, PermissionAction(action_raw))
 
 
-    def _scope_matches(self, domain: str) -> bool:
-        if self.scope == "*":
-            return True
-        return fnmatch.fnmatch(domain.lower(), self.scope.lower())
-
-
-    def _action_satisfies(self, action: PermissionAction) -> bool:
+    def allows_action(self, action: "PermissionAction") -> bool:
+        # ANY satisfies every action.
         if self.action == PermissionAction.ANY:
             return True
-        if self.action == PermissionAction.WRITE:
-            return action in (PermissionAction.READ, PermissionAction.WRITE)
-        return action == PermissionAction.READ
+        # Exact match.
+        if self.action == action:
+            return True
+        # Per-entity: write_<entity> implies read_<entity>.
+        return (self.action.value.startswith("write_")
+                and action.value == "read_" + self.action.value[len("write_"):])
 
-
-    def allows(self, domain: str, action: PermissionAction) -> bool:
-        return self._scope_matches(domain) and self._action_satisfies(action)
+    def allows(self, domain: str, action: "PermissionAction") -> bool:
+        # Action gate.
+        if not self.allows_action(action):
+            return False
+        scope = self.scope.lower()
+        domain = domain.lower()
+        # "*" = all; exact domain match.
+        if scope == "*" or scope == domain:
+            return True
+        # "*.base" matches exactly one label below base (no dots in that label).
+        if scope.startswith("*."):
+            base = scope[2:]
+            if not domain.endswith("." + base):
+                return False
+            label = domain[: -(len(base) + 1)]
+            return bool(label) and "." not in label
+        return False

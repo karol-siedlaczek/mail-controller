@@ -176,3 +176,43 @@ def test_delete_user_cascades_all_references(stack):
         if dom in f["source"]:
             requests.delete(f"{stack}/api/forwardings/{f['id']}", headers=_h("admin"))
     requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin"))
+
+
+def test_metrics_endpoint(stack):
+    r = requests.get(f"{stack}/api/metrics", headers=_h("admin"))
+    assert r.status_code == 200, r.text
+    assert "text/plain" in r.headers.get("Content-Type", "")
+    body = r.text
+    assert "mailctl_build_info" in body
+    assert "mailctl_domains_total" in body
+    assert "mailctl_auth_events_5m" in body
+    # unauthenticated must be rejected (endpoint requires auth)
+    assert requests.get(f"{stack}/api/metrics").status_code == 401
+
+
+def test_new_filters_execute(stack):
+    """The new query filters must produce valid SQL the DB accepts (200, not 500)."""
+    requests.post(f"{stack}/api/domains", json={"domain": "filt.test"}, headers=_h("admin"))
+    requests.post(f"{stack}/api/users",
+                  json={"email": f"u@filt.test", "password": "Sup3rSecret!"}, headers=_h("admin"))
+    h = _h("admin")
+    # active + created range on domains
+    r = requests.get(f"{stack}/api/domains?active=true&created_since=2000-01-01", headers=h)
+    assert r.status_code == 200, r.text
+    assert any(d["domain"] == "filt.test" for d in r.json()["data"])
+    assert all(d["active"] for d in r.json()["data"])
+    # active=false excludes the active domain
+    r = requests.get(f"{stack}/api/domains?active=false", headers=h)
+    assert "filt.test" not in {d["domain"] for d in r.json()["data"]}
+    # users active + created range
+    assert requests.get(f"{stack}/api/users?active=true&created_until=2999-01-01", headers=h).status_code == 200
+    # forwardings keep_copy
+    assert requests.get(f"{stack}/api/forwardings?keep_copy=false&active=true", headers=h).status_code == 200
+    # sender-logins created range
+    assert requests.get(f"{stack}/api/sender-logins?created_since=2000-01-01", headers=h).status_code == 200
+    # audit success + lookups (host(src_ip)=, queue_id=, etc.) — exercises the SQL
+    r = requests.get(f"{stack}/api/audit?success=true&host=mx1&src_ip=10.0.0.1&queue_id=q&message_id=m&sender=a@x&recipient=b@y", headers=h)
+    assert r.status_code == 200, r.text
+    # cleanup
+    requests.delete(f"{stack}/api/users/u@filt.test", headers=h)
+    requests.delete(f"{stack}/api/domains/filt.test", headers=h)

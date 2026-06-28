@@ -1,21 +1,61 @@
 from dataclasses import dataclass
+from flask import request
 from mail_controller.domain.identity import Identity
-from mail_controller.domain.permission import PermissionAction
-from mail_controller.domain.address import domain_of
-from mail_controller.api.helpers import require_auth, get_remote_ip
-from mail_controller.exception.api_exceptions import PermissionDeniedError, InvalidRequestError
+from mail_controller.domain.permission.permission_action import PermissionAction
+from mail_controller.conf.config import Config
+from mail_controller.exception.api_exceptions import PermissionDeniedError
+from mail_controller.exception.auth_exceptions import (
+    AuthTokenMissingException, AuthFailedException, AuthIpNotAllowedException,
+)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Context:
-    remote_ip: str | None
-    identity: Identity
+    remote_ip: str | None = None
+    identity: Identity | None = None
+
 
     @classmethod
     def authenticate(cls) -> "Context":
-        remote_ip = get_remote_ip()
-        identity = require_auth(remote_ip)
-        return cls(remote_ip, identity)
+        ctx = cls()
+        ctx.remote_ip = ctx.get_remote_ip()
+        ctx.identity = ctx.resolve_identity()
+        return ctx
+
+
+    def resolve_identity(self) -> Identity:
+        auth_header = request.headers.get("Authorization", None)
+
+        if not auth_header or auth_header == "":
+            raise AuthTokenMissingException("Authorization header is missing or empty")
+        elif not auth_header.startswith("Bearer "):
+            raise AuthTokenMissingException("Authorization header does not start with 'Bearer '")
+
+        token_raw = auth_header[len("Bearer "):].strip()
+
+        try:
+            identity_id, identity_token = token_raw.split(".", 1)
+            if not identity_id or not identity_token:
+                raise ValueError()
+        except ValueError:
+            raise AuthFailedException("Invalid token format, expected: 'Authorization: Bearer <id>.<token>'")
+
+        conf = Config.get_from_global_context()
+        identity = next((i for i in conf.identities if i.id == identity_id), None)
+
+        if identity is None:
+            raise AuthFailedException(f"Unknown identity '{identity_id}'")
+        if not identity.is_token_valid(conf.hmac_key, identity_token):
+            raise AuthFailedException(f"Invalid token for identity '{identity_id}'")
+        if not identity.is_ip_allowed(self.remote_ip):
+            raise AuthIpNotAllowedException(self.remote_ip)
+
+        return identity
+
+
+    def get_remote_ip(self) -> str | None:
+        return request.remote_addr
+
 
     def require(self, domain: str, action: PermissionAction) -> None:
         if not self.identity.allows(domain, action):
@@ -23,31 +63,17 @@ class Context:
                 detail={"identity": self.identity.id, "domain": domain, "action": action.value}
             )
 
-    def _has_star_read(self) -> bool:
-        # A global reader is any "*"-scope permission whose action grants READ
-        # (READ, or WRITE/ANY which imply READ). No domain is involved.
-        return any(p.scope == "*" and p._action_satisfies(PermissionAction.READ)
-                   for p in self.identity.permissions)
 
-    def filter_readable(self, rows: list[dict], domain_key: str) -> list[dict]:
-        out: list[dict] = []
-        for row in rows:
-            value = row.get(domain_key)
-            if value is None:
-                # audit rows with no login: visible only to a *-scope reader
-                if self._has_star_read():
-                    out.append(row)
-                continue
-            if domain_key == "domain":
-                domain = value
-            else:
-                try:
-                    domain = domain_of(value)
-                except InvalidRequestError:
-                    # malformed value (e.g. SASL login without @): treat like null
-                    if self._has_star_read():
-                        out.append(row)
-                    continue
-            if self.identity.allows(domain, PermissionAction.READ):
-                out.append(row)
-        return out
+    def require_action(self, action: PermissionAction) -> None:
+        # Gate a non-domain-scoped surface (e.g. metrics): the identity must hold
+        # at least one permission whose action satisfies `action`, regardless of scope.
+        if not any(p.allows_action(action) for p in self.identity.permissions):
+            raise PermissionDeniedError(
+                detail={"identity": self.identity.id, "action": action.value}
+            )
+
+    def _has_star(self, action: PermissionAction) -> bool:
+        # A "*"-scope permission grants `action` regardless of domain. Reuses
+        # Permission.allows so the action/scope rule lives in one place.
+        return any(p.scope == "*" and p.allows(domain="*", action=action)
+                   for p in self.identity.permissions)

@@ -24,8 +24,10 @@ class Config:
     pg_user: str = None
     pg_password: str = None
     password_scheme: str = "ARGON2ID"
+    trusted_proxy_hops: int = 0
     hmac_key: bytes = None
     identities: list[Identity] = field(default_factory=list)
+
 
     @classmethod
     def load(cls) -> "Config":
@@ -42,6 +44,15 @@ class Config:
 
         password_scheme = os.getenv("PASSWORD_SCHEME", "ARGON2ID").upper()
         Require.one_of("PASSWORD_SCHEME", password_scheme, list(SUPPORTED_SCHEMES))
+
+        try:
+            trusted_proxy_hops = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+        except ValueError:
+            raise ValidationError(
+                f"Invalid 'TRUSTED_PROXY_HOPS={os.getenv('TRUSTED_PROXY_HOPS')}', "
+                f"must be an integer >= 0"
+            )
+        Require.min("TRUSTED_PROXY_HOPS", trusted_proxy_hops, 0)
 
         pg_password = cls._resolve_secret("PG_PASSWORD")
 
@@ -67,9 +78,11 @@ class Config:
             pg_user=os.getenv("PG_USER"),
             pg_password=pg_password,
             password_scheme=password_scheme,
+            trusted_proxy_hops=trusted_proxy_hops,
             hmac_key=hmac_key,
             identities=identities,
         )
+
 
     @staticmethod
     def _resolve_secret(name: str) -> str | None:
@@ -78,6 +91,7 @@ class Config:
             path = Require.file_exists(file_var, os.getenv(file_var))
             return path.read_text(encoding="UTF-8").rstrip("\n")
         return os.getenv(name)
+
 
     @staticmethod
     def _parse_identities(identities_raw: Any) -> list[Identity]:
@@ -96,6 +110,7 @@ class Config:
                 raise ValidationError(f"Error found at identities[{i}]: {e}")
             
         return identities
+
 
     @staticmethod
     def get_from_global_context() -> "Config":

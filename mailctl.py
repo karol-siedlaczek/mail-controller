@@ -127,6 +127,27 @@ class Opt:
             help=help
         )
 
+    @staticmethod
+    def active() -> Any:
+        return typer.Option(
+            None, "--active/--inactive",
+            help="Filter by active state"
+        )
+
+    @staticmethod
+    def created_since() -> Any:
+        return typer.Option(
+            None, "--created-since",
+            help="Only entries created since this timestamp (e.g. 2026-06-01)"
+        )
+
+    @staticmethod
+    def created_until() -> Any:
+        return typer.Option(
+            None, "--created-until",
+            help="Only entries created up to this timestamp (e.g. 2026-06-30)"
+        )
+
 
 @dataclass
 class Settings:
@@ -540,13 +561,24 @@ def token_gen_hmac(
 def domain_list(
     ctx: typer.Context,
     filter: str = Opt.filter("Filter by domain name (substring)"),
+    active: Optional[bool] = Opt.active(),
+    created_since: Optional[str] = Opt.created_since(),
+    created_until: Optional[str] = Opt.created_until(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
-    params = {"filter": filter} if filter else None
+    params: dict[str, Any] = {}
+    if filter:
+        params["filter"] = filter
+    if active is not None:
+        params["active"] = active
+    if created_since:
+        params["created_since"] = created_since
+    if created_until:
+        params["created_until"] = created_until
     client = Client.init(ctx, format, timeout=timeout)
-    response = client.request("GET", "/api/domains", params=params)
+    response = client.request("GET", "/api/domains", params=params or None)
     result = CmdResult.from_response(response)
     return result.render_and_exit(ctx.info_name, columns)
 
@@ -629,15 +661,24 @@ def user_list(
     ctx: typer.Context,
     domain: str = Opt.domain(),
     filter: str = Opt.filter("Filter by email (substring)"),
+    active: Optional[bool] = Opt.active(),
+    created_since: Optional[str] = Opt.created_since(),
+    created_until: Optional[str] = Opt.created_until(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
-    params = {}
+    params: dict[str, Any] = {}
     if domain:
         params["domain"] = domain
     if filter:
         params["filter"] = filter
+    if active is not None:
+        params["active"] = active
+    if created_since:
+        params["created_since"] = created_since
+    if created_until:
+        params["created_until"] = created_until
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/users", params=params or None)
     result = CmdResult.from_response(response)
@@ -758,17 +799,29 @@ def forward_list(
     source: str = typer.Option(None, "--source", "-s"),
     domain: str = Opt.domain(),
     filter: str = Opt.filter("Filter by source or destination (substring)"),
+    active: Optional[bool] = Opt.active(),
+    keep_copy: Optional[bool] = typer.Option(None, "--keep-copy/--no-keep-copy", help="Filter by keep-copy state"),
+    created_since: Optional[str] = Opt.created_since(),
+    created_until: Optional[str] = Opt.created_until(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
-    params = {}
+    params: dict[str, Any] = {}
     if source:
         params["source"] = source
     if domain:
         params["domain"] = domain
     if filter:
         params["filter"] = filter
+    if active is not None:
+        params["active"] = active
+    if keep_copy is not None:
+        params["keep_copy"] = keep_copy
+    if created_since:
+        params["created_since"] = created_since
+    if created_until:
+        params["created_until"] = created_until
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/forwardings", params=params or None)
     result = CmdResult.from_response(response)
@@ -818,15 +871,24 @@ def sendas_list(
     ctx: typer.Context,
     domain: str = Opt.domain(),
     filter: str = Opt.filter("Filter by login_email or allowed_sender (substring)"),
+    active: Optional[bool] = Opt.active(),
+    created_since: Optional[str] = Opt.created_since(),
+    created_until: Optional[str] = Opt.created_until(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
-    params = {}
+    params: dict[str, Any] = {}
     if domain:
         params["domain"] = domain
     if filter:
         params["filter"] = filter
+    if active is not None:
+        params["active"] = active
+    if created_since:
+        params["created_since"] = created_since
+    if created_until:
+        params["created_until"] = created_until
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/sender-logins", params=params or None)
     result = CmdResult.from_response(response)
@@ -876,12 +938,19 @@ def audit(
     event_type: AuditEventType = typer.Option(None, "--type", help="Filter by event type"),
     since: str = typer.Option(None, "--since", help="Only entries since this timestamp (e.g. 2026-06-01)"),
     until: str = typer.Option(None, "--until", help="Only entries up to this timestamp (e.g. 2026-06-30)"),
+    success: Optional[bool] = typer.Option(None, "--success/--failure", help="Filter by success state"),
+    queue_id: str = typer.Option(None, "--queue-id", help="Filter by queue id"),
+    message_id: str = typer.Option(None, "--message-id", help="Filter by message id"),
+    host: str = typer.Option(None, "--host", help="Filter by host"),
+    src_ip: str = typer.Option(None, "--src-ip", help="Filter by source IP"),
+    sender: str = typer.Option(None, "--sender", help="Filter by sender"),
+    recipient: str = typer.Option(None, "--recipient", help="Filter by recipient"),
     limit: int = typer.Option(100, "--limit", help="Maximum number of entries to return"),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
-    params = {"limit": limit}
+    params: dict[str, Any] = {"limit": limit}
     if login:
         params["login"] = login
     if event_type:
@@ -890,6 +959,20 @@ def audit(
         params["since"] = since
     if until:
         params["until"] = until
+    if success is not None:
+        params["success"] = success
+    if queue_id:
+        params["queue_id"] = queue_id
+    if message_id:
+        params["message_id"] = message_id
+    if host:
+        params["host"] = host
+    if src_ip:
+        params["src_ip"] = src_ip
+    if sender:
+        params["sender"] = sender
+    if recipient:
+        params["recipient"] = recipient
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/audit", params=params)
     result = CmdResult.from_response(response)
@@ -992,4 +1075,4 @@ def parse_quota(value: str | None) -> int | None:
 
 
 if __name__ == "__main__":
-    app()
+    app(prog_name="mailctl")

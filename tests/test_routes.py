@@ -60,10 +60,10 @@ def client(monkeypatch, tmp_path):
         "identities:\n"
         "  - id: admin\n"
         "    allowed_cidrs: [\"0.0.0.0/0\"]\n"
-        "    permissions: [\"*:write\"]\n"
+        "    permissions: [\"*:*\"]\n"
         "  - id: ro\n"
         "    allowed_cidrs: [\"0.0.0.0/0\"]\n"
-        "    permissions: [\"other.com:read\"]\n"
+        "    permissions: [\"other.com:read_domain\"]\n"
     )
     monkeypatch.setenv("HMAC_KEY_B64", KEY_B64)
     monkeypatch.setenv("PG_HOST", "db")
@@ -119,3 +119,9 @@ def test_ro_cannot_create_domain(client):
 def test_token_identity(client):
     r = client.get("/api/token/identity", headers=_auth("admin", "adm"))
     assert r.get_json()["data"]["id"] == "admin"
+
+
+def test_get_single_domain(client):
+    r = client.get("/api/domains/example.com", headers=_auth("admin", "adm"))
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["data"]["domain"] == "example.com"

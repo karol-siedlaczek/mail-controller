@@ -1,6 +1,6 @@
 # Mail Controller
 
-A management companion for the `mail-server` image from the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
+A management companion for the `mail-server` image from the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
 
 ## Development
 ### 1) Requirements
@@ -137,8 +137,11 @@ docker compose down
 | `PG_PASSWORD` | `string` | :x: | - | Password for `PG_USER` |
 | `PG_PASSWORD__FILE` | `string` | :x: | - | Path to a file containing the password for `PG_USER` (Docker secrets); alternative to `PG_PASSWORD` |
 | `PASSWORD_SCHEME` | `string` | :x: | `ARGON2ID` | Hashing scheme for new mailbox passwords (`ARGON2ID`, `BLF-CRYPT`) |
+| `TRUSTED_PROXY_HOPS` | `number` | :x: | `0` | Number of trusted reverse-proxy hops (integer ≥ 0). `0` ignores `X-Forwarded-For` and uses the direct TCP peer for the IP allowlist (`allowed_cidrs`) — spoof-safe. Trusts only the N rightmost `X-Forwarded-For` entries. |
 
 `HMAC_KEY_B64`, `PG_HOST`, `PG_DBNAME`, and `PG_USER` are required; the container will refuse to start if they are absent.
+
+> **Behind a reverse proxy** (nginx/HAProxy), set `TRUSTED_PROXY_HOPS` to the number of proxies in front of mail-controller (usually `1`). If left at the default `0`, the IP allowlist sees the proxy's IP instead of the client's and rejects legitimate requests (fails closed). Never set it higher than the actual proxy count, or clients could spoof `X-Forwarded-For`.
 
 ## Configuration
 `CONF_FILE` is a YAML file defining the identities (`identities`) the API will accept.
@@ -151,18 +154,18 @@ identities:
       - "10.0.0.0/8"
       - "127.0.0.1/32"
     permissions:
-      - "*:write"
+      - "*:*"
   - id: "example"
     allowed_cidrs:
       - "10.20.0.0/16"
     permissions:
-      - "example.com:write"
-      - "*.example.com:read"
+      - "example.com:*"
+      - "*.example.com:read_domain"
   - id: "reader"
     allowed_cidrs:
       - "0.0.0.0/0"
     permissions:
-      - "*:read"
+      - "*:read_audit"
 ```
 
 ### Field meanings
@@ -170,8 +173,16 @@ identities:
 - `identities[].id` - identity identifier used in token format `Bearer <id>.<token>` (must match `^[A-Za-z_0-9]+$`).
 - `identities[].allowed_cidrs` - CIDR list allowed to make requests for this identity (IPv4 or IPv6).
 - `identities[].permissions` - permission entries in `"<scope>:<action>"` format, where:
-  - `scope` - `*` (full admin) or a domain glob matched case-insensitively (`fnmatch`), e. g. `example.com`, `*.example.com`.
-  - `action` - `read`, `write` (implies `read`), or `*`.
+  - `scope` - `*` (full admin), an exact domain matched case-insensitively (e. g. `example.com`), or a `*.<domain>` wildcard matching exactly one label below it (e. g. `*.example.com` matches `a.example.com` but not `example.com` or `a.b.example.com`).
+  - `action` - one of the per-entity actions, or `*` (all actions for the scope):
+    - `read_domain` / `write_domain`
+    - `read_user` / `write_user`
+    - `read_forwarding` / `write_forwarding`
+    - `read_sender_login` / `write_sender_login`
+    - `read_audit` (read-only)
+    - `read_metrics` (read-only; gates `/api/metrics`)
+    - each `write_<entity>` implies `read_<entity>`.
+  - **Breaking change:** the legacy generic `read` / `write` actions are no longer valid; migrate to the per-entity actions above (or `*` for full control over a scope).
 
 If you have identities such as `admin` and `example`, you must provide following environments:
 ```ini
@@ -196,27 +207,27 @@ CLI will print a ready-to-use value:
 TOKEN_ADMIN_HMAC=<hex_hmac>
 ```
 
-## Database role
+## Database role1
 `mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail_admin` with full CRUD on the four management tables and SELECT on `audit_logs`:
 
 ```sql
-CREATE ROLE 'mail_admin' NOLOGIN;
+CREATE ROLE "mail-server-admin" NOLOGIN;
 GRANT SELECT, INSERT, UPDATE, DELETE
-  ON domains, users, forwardings, sender_login_maps TO 'mail_admin';
-GRANT SELECT ON audit_logs TO 'mail_admin';
+  ON domains, users, forwardings, sender_login_maps TO 'mail-server-admin';
+GRANT SELECT ON audit_logs TO 'mail-server-admin';
 GRANT USAGE, SELECT ON SEQUENCE
   domains_id_seq, users_id_seq, forwardings_id_seq, sender_login_maps_id_seq
-  TO 'mail_admin';
+  TO 'mail-server-admin';
 ```
 
 After applying the schema, the operator creates a login role and grants it the group:
 
 ```sql
 CREATE ROLE mail_admin LOGIN PASSWORD '...';
-GRANT 'mail-server-rw_user' TO mail_admin;
+GRANT 'mail-server-admin_user' TO "mail-server_admin";
 ```
 
-Set `PG_USER=mail-server-rw_user` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
+Set `PG_USER=mail-server-admin_user` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
 
 ## API
 Required authorization header:
@@ -259,7 +270,7 @@ Endpoints:
 
 Notes:
 - `password` is hashed server-side and never returned; the password hash is never included in any user response.
-- `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read`.
+- `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read_audit`.
 - **Error responses** follow the standard envelope: `{method, http_code, http_status, path, message, detail, data, timestamp}`. Schema violations and missing-domain FK surface as `422`, UNIQUE conflicts as `409`, missing resources as `404`, auth failures as `401`/`403`.
 
 Examples:
@@ -378,7 +389,7 @@ gunicorn wsgi:app --check-config
 
 ## Notes
 - Application logs are written to `${LOGS_DIR}/app.log`; gunicorn access and error logs go to stdout/stderr.
-- This project manages the `mail-server` image maintained in the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. `mail-controller` and `mail-server` are deliberately decoupled: their **only shared surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`) and the `{SCHEME}`-prefixed password format Dovecot reads. `mail-controller` never touches the mail daemons, the mail store, or the DKIM key files.
+- This project manages the `mail-server` image maintained in the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. `mail-controller` and `mail-server` are deliberately decoupled: their **only shared surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`) and the `{SCHEME}`-prefixed password format Dovecot reads. `mail-controller` never touches the mail daemons, the mail store, or the DKIM key files.
 
 ## Publishing Docker image
 
