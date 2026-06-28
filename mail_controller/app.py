@@ -1,6 +1,8 @@
 import logging
+from datetime import date
 from pathlib import Path
 from flask import Flask, Response
+from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import MethodNotAllowed, NotFound
 from werkzeug.middleware.proxy_fix import ProxyFix
 from mail_controller.conf.config import Config
@@ -12,8 +14,20 @@ from mail_controller.exception.api_exceptions import ApiError
 from mail_controller.exception.validator_exceptions import ValidationError
 
 
+DATE_FMT = "%Y-%m-%d %H:%M"
+
+
+class JSONProvider(DefaultJSONProvider):
+    @staticmethod
+    def default(o):
+        if isinstance(o, date):  # covers datetime (subclass of date)
+            return o.strftime(DATE_FMT)
+        return DefaultJSONProvider.default(o)
+
+
 def create_app(database: Database | None = None) -> Flask:
     app = Flask(__name__)
+    app.json = JSONProvider(app)
     config = Config.load()
     app.extensions["config"] = config
     app.extensions["db"] = database if database is not None else Database(
