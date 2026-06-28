@@ -119,3 +119,9 @@ def test_ro_cannot_create_domain(client):
 def test_token_identity(client):
     r = client.get("/api/token/identity", headers=_auth("admin", "adm"))
     assert r.get_json()["data"]["id"] == "admin"
+
+
+def test_get_single_domain(client):
+    r = client.get("/api/domains/example.com", headers=_auth("admin", "adm"))
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["data"]["domain"] == "example.com"

@@ -16,6 +16,7 @@ class Database:
             host=host, port=port, dbname=dbname, user=user, password=password,
         )
 
+
     @contextmanager
     def transaction(self):
         conn = self._pool.getconn()
@@ -28,6 +29,7 @@ class Database:
             raise
         finally:
             self._pool.putconn(conn)
+
 
     @staticmethod
     def get_from_global_context() -> "Database":

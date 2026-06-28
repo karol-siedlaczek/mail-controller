@@ -302,3 +302,146 @@ _AUDIT_ROW = {"id": 1, "event_type": "auth", "success": True, "login": "a@exampl
 def test_list_audit_returns_entities():
     cur = FakeCursor(rows=[_AUDIT_ROW])
     assert repo.list_audit(cur, limit=10) == [AuditEntry.from_row(_AUDIT_ROW)]
+
+
+# ── active filter ─────────────────────────────────────────────────────────────
+def test_list_domains_active_filter():
+    cur = FakeCursor(rows=[])
+    repo.list_domains(cur, active=True)
+    sql, params = cur.executed[-1]
+    assert "active = %(active)s" in sql.lower()
+    assert True in params.values()
+
+
+def test_list_users_active_filter_false_combines_with_domain():
+    cur = FakeCursor(rows=[])
+    repo.list_users(cur, domain="example.com", active=False)
+    sql, params = cur.executed[-1]
+    assert "active = %(active)s" in sql.lower()
+    assert " and " in sql.lower()
+    assert False in params.values()
+
+
+def test_list_forwardings_active_filter():
+    cur = FakeCursor(rows=[])
+    repo.list_forwardings(cur, active=True)
+    assert "active = %(active)s" in cur.last_sql.lower()
+
+
+def test_list_sender_logins_active_filter():
+    cur = FakeCursor(rows=[])
+    repo.list_sender_logins(cur, active=False)
+    assert "active = %(active)s" in cur.last_sql.lower()
+
+
+def test_list_domains_no_active_filter_omits_clause():
+    cur = FakeCursor(rows=[])
+    repo.list_domains(cur)
+    assert "active = %(active)s" not in cur.last_sql.lower()
+    assert "where" not in cur.last_sql.lower()
+
+
+# ── more filters: keep_copy / audit success+lookups / created range ───────────
+def test_list_forwardings_keep_copy_filter():
+    cur = FakeCursor(rows=[])
+    repo.list_forwardings(cur, keep_copy=True)
+    sql, params = cur.executed[-1]
+    assert "keep_copy = %(keep_copy)s" in sql.lower()
+    assert True in params.values()
+
+
+def test_list_audit_success_filter():
+    cur = FakeCursor(rows=[])
+    repo.list_audit(cur, success=False)
+    sql, params = cur.executed[-1]
+    assert "success = %(success)s" in sql.lower()
+    assert False in params.values()
+
+
+def test_list_audit_lookup_filters():
+    cur = FakeCursor(rows=[])
+    repo.list_audit(cur, queue_id="ABC123", host="mx1", src_ip="10.0.0.1",
+                    message_id="<m@x>", sender="a@x.test", recipient="b@y.test")
+    sql, params = cur.executed[-1]
+    low = sql.lower()
+    assert "queue_id = %(queue_id)s" in low
+    assert "message_id = %(message_id)s" in low
+    assert "host = %(host)s" in low
+    assert "host(src_ip) = %(src_ip)s" in low
+    assert "sender = %(sender)s" in low
+    assert "recipient = %(recipient)s" in low
+    assert "ABC123" in params.values() and "10.0.0.1" in params.values()
+
+
+def test_list_domains_created_range():
+    cur = FakeCursor(rows=[])
+    repo.list_domains(cur, created_since="2026-06-01", created_until="2026-06-30")
+    sql, params = cur.executed[-1]
+    assert "created_at >= %(cs)s" in sql.lower()
+    assert "created_at <= %(cu)s" in sql.lower()
+    assert "2026-06-01" in params.values() and "2026-06-30" in params.values()
+
+
+def test_list_users_created_since_combines():
+    cur = FakeCursor(rows=[])
+    repo.list_users(cur, domain="example.com", created_since="2026-06-01")
+    sql, params = cur.executed[-1]
+    assert "created_at >= %(cs)s" in sql.lower()
+    assert " and " in sql.lower()
+
+
+# ── metrics aggregation ───────────────────────────────────────────────────────
+def test_list_domain_names():
+    cur = FakeCursor(rows=[{"domain": "a.test"}, {"domain": "b.test"}])
+    assert repo.list_domain_names(cur) == ["a.test", "b.test"]
+
+
+def test_count_users_by_domain_groups_and_parses():
+    cur = FakeCursor(rows=[{"dom": "example.com", "count": 3}, {"dom": "b.test", "count": 1}])
+    result = repo.count_users_by_domain(cur)
+    sql = cur.last_sql.lower()
+    assert "group by" in sql and "split_part(email, '@', 2)" in sql
+    assert result == {"example.com": 3, "b.test": 1}
+
+
+def test_count_forwardings_by_domain_uses_source():
+    cur = FakeCursor(rows=[{"dom": "example.com", "count": 2}])
+    repo.count_forwardings_by_domain(cur)
+    assert "split_part(source, '@', 2)" in cur.last_sql.lower()
+
+
+def test_count_sender_logins_by_domain_uses_allowed_sender():
+    cur = FakeCursor(rows=[{"dom": "example.com", "count": 2}])
+    repo.count_sender_logins_by_domain(cur)
+    assert "split_part(allowed_sender, '@', 2)" in cur.last_sql.lower()
+
+
+def test_count_audit_by_domain_windows_and_attributes():
+    cur = FakeCursor(rows=[
+        {"event_type": "auth", "success": True, "dom": "example.com", "count": 5},
+        {"event_type": "send", "success": None, "dom": "example.com", "count": 2},
+    ])
+    rows = repo.count_audit_by_domain(cur, since="2026-06-25T00:00:00Z")
+    sql, params = cur.executed[-1]
+    low = sql.lower()
+    assert "timestamp" in low and ">=" in low            # windowed
+    assert "case" in low                                  # per-event_type attribution
+    assert "2026-06-25T00:00:00Z" in params.values()
+    assert rows[0]["event_type"] == "auth" and rows[0]["count"] == 5
+
+
+# ── ILIKE wildcard escaping tests ─────────────────────────────────────────────
+def test_list_domains_escapes_like_wildcards():
+    cur = FakeCursor(rows=[])
+    repo.list_domains(cur, term="a_b%c\\d")
+    sql, params = cur.executed[-1]
+    assert params["flt"] == "%a\\_b\\%c\\\\d%"
+    assert "ESCAPE" in sql.upper()
+
+
+def test_list_users_escapes_like_wildcards():
+    cur = FakeCursor(rows=[])
+    repo.list_users(cur, term="x_y")
+    sql, params = cur.executed[-1]
+    assert params["flt"] == "%x\\_y%"
+    assert "ESCAPE" in sql.upper()

@@ -1,5 +1,5 @@
 from mail_controller.api.helpers import render_metrics
-from mail_controller.api.routes import _scope_metrics
+from mail_controller.api.helpers import scope_metrics
 
 
 class _FakeIdentity:
@@ -21,7 +21,7 @@ class _FakeCtx:
 
 def test_scope_metrics_scoped_filters_by_readable_domain():
     ctx = _FakeCtx(star=False, readable={"example.com"})
-    totals, traffic = _scope_metrics(
+    totals, traffic = scope_metrics(
         ctx,
         domain_names=["example.com", "other.test"],
         users_by={"example.com": 3, "other.test": 9},
@@ -41,7 +41,7 @@ def test_scope_metrics_scoped_filters_by_readable_domain():
 
 def test_scope_metrics_star_sees_everything_including_null_domain():
     ctx = _FakeCtx(star=True, readable=set())
-    totals, traffic = _scope_metrics(
+    totals, traffic = scope_metrics(
         ctx,
         domain_names=["example.com", "other.test"],
         users_by={"example.com": 3, "other.test": 9},

@@ -20,7 +20,7 @@ class Mailbox:
             active=row["active"],
             domain_id=row["domain_id"],
             id=row["id"],
-            created_at=row["created_at"],
+            created_at=row["created_at"]
         )
 
     def to_dict(self) -> dict:

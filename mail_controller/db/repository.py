@@ -18,12 +18,36 @@ _AUDIT_COLS = ('id, event_type, success, login, host(src_ip) AS src_ip, host, '
                'sender, recipient, message_id, queue_id, score, msg, pid, "timestamp"')
 
 
+def _like_term(term: str) -> str:
+    """Wrap `term` as a substring ILIKE pattern, escaping LIKE wildcards (\\ % _)."""
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _created_clauses(created_since, created_until) -> tuple[list, dict]:
+    clauses, params = [], {}
+    if created_since is not None:
+        clauses.append("created_at >= %(cs)s")
+        params["cs"] = created_since
+    if created_until is not None:
+        clauses.append("created_at <= %(cu)s")
+        params["cu"] = created_until
+    return clauses, params
+
+
 # ── domains ────────────────────────────────────────────────────────────────
-def list_domains(cur, term=None) -> list[Domain]:
-    where, params = "", {}
+def list_domains(cur, term=None, active=None, created_since=None, created_until=None) -> list[Domain]:
+    clauses, params = [], {}
     if term:
-        where = " WHERE domain ILIKE %(flt)s"
-        params["flt"] = f"%{term}%"
+        clauses.append("domain ILIKE %(flt)s ESCAPE '\\'")
+        params["flt"] = _like_term(term)
+    if active is not None:
+        clauses.append("active = %(active)s")
+        params["active"] = active
+    c, p = _created_clauses(created_since, created_until)
+    clauses += c
+    params.update(p)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_DOMAIN_COLS} FROM domains{where} ORDER BY domain", params)
     return [Domain.from_row(r) for r in cur.fetchall()]
 
@@ -64,14 +88,20 @@ def delete_domain(cur, domain: str) -> bool:
 
 
 # ── users ──────────────────────────────────────────────────────────────────
-def list_users(cur, domain=None, term=None) -> list[Mailbox]:
+def list_users(cur, domain=None, term=None, active=None, created_since=None, created_until=None) -> list[Mailbox]:
     clauses, params = [], {}
     if domain:
         clauses.append("domain_id = (SELECT id FROM domains WHERE domain = %(d)s)")
         params["d"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
-        clauses.append("email ILIKE %(flt)s")
-        params["flt"] = f"%{term}%"
+        clauses.append("email ILIKE %(flt)s ESCAPE '\\'")
+        params["flt"] = _like_term(term)
+    if active is not None:
+        clauses.append("active = %(active)s")
+        params["active"] = active
+    c, p = _created_clauses(created_since, created_until)
+    clauses += c
+    params.update(p)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_USER_COLS} FROM users{where} ORDER BY email", params)
     return [Mailbox.from_row(r) for r in cur.fetchall()]
@@ -134,7 +164,8 @@ def delete_user(cur, email: EmailAddress) -> dict | None:
 
 
 # ── forwardings ──────────────────────────────────────────────────────────────
-def list_forwardings(cur, source=None, domain=None, term=None) -> list[Forwarding]:
+def list_forwardings(cur, source=None, domain=None, term=None, active=None,
+                     keep_copy=None, created_since=None, created_until=None) -> list[Forwarding]:
     clauses, params = [], {}
     if source:
         clauses.append("source = %(src)s")
@@ -143,8 +174,17 @@ def list_forwardings(cur, source=None, domain=None, term=None) -> list[Forwardin
         clauses.append("split_part(source, '@', 2) = %(dom)s")
         params["dom"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
-        clauses.append("(source ILIKE %(flt)s OR destination ILIKE %(flt)s)")
-        params["flt"] = f"%{term}%"
+        clauses.append("(source ILIKE %(flt)s ESCAPE '\\' OR destination ILIKE %(flt)s ESCAPE '\\')")
+        params["flt"] = _like_term(term)
+    if active is not None:
+        clauses.append("active = %(active)s")
+        params["active"] = active
+    if keep_copy is not None:
+        clauses.append("keep_copy = %(keep_copy)s")
+        params["keep_copy"] = keep_copy
+    c, p = _created_clauses(created_since, created_until)
+    clauses += c
+    params.update(p)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(f"SELECT {_FWD_COLS} FROM forwardings{where} ORDER BY source, destination", params)
     return [Forwarding.from_row(r) for r in cur.fetchall()]
@@ -169,14 +209,21 @@ def delete_forwarding(cur, fid: int) -> bool:
 
 
 # ── sender_login_maps ────────────────────────────────────────────────────────
-def list_sender_logins(cur, domain=None, term=None) -> list[SenderLogin]:
+def list_sender_logins(cur, domain=None, term=None, active=None,
+                       created_since=None, created_until=None) -> list[SenderLogin]:
     clauses, params = [], {}
     if domain:
         clauses.append("split_part(allowed_sender, '@', 2) = %(d)s")
         params["d"] = domain.value if isinstance(domain, DomainName) else domain
     if term:
-        clauses.append("(login_email ILIKE %(flt)s OR allowed_sender ILIKE %(flt)s)")
-        params["flt"] = f"%{term}%"
+        clauses.append("(login_email ILIKE %(flt)s ESCAPE '\\' OR allowed_sender ILIKE %(flt)s ESCAPE '\\')")
+        params["flt"] = _like_term(term)
+    if active is not None:
+        clauses.append("active = %(active)s")
+        params["active"] = active
+    c, p = _created_clauses(created_since, created_until)
+    clauses += c
+    params.update(p)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(
         f"SELECT {_SLM_COLS} FROM sender_login_maps{where} "
@@ -206,7 +253,9 @@ def delete_sender_login(cur, sid: int) -> bool:
 
 
 # ── audit_logs (read-only) ───────────────────────────────────────────────────
-def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=100) -> list[AuditEntry]:
+def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=100,
+               success=None, queue_id=None, message_id=None, host=None,
+               src_ip=None, sender=None, recipient=None) -> list[AuditEntry]:
     clauses, params = [], {"lim": limit}
     if login:
         clauses.append("login = %(login)s")
@@ -220,6 +269,27 @@ def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=1
     if until:
         clauses.append('"timestamp" <= %(until)s')
         params["until"] = until
+    if success is not None:
+        clauses.append("success = %(success)s")
+        params["success"] = success
+    if queue_id:
+        clauses.append("queue_id = %(queue_id)s")
+        params["queue_id"] = queue_id
+    if message_id:
+        clauses.append("message_id = %(message_id)s")
+        params["message_id"] = message_id
+    if host:
+        clauses.append("host = %(host)s")
+        params["host"] = host
+    if src_ip:
+        clauses.append("host(src_ip) = %(src_ip)s")
+        params["src_ip"] = src_ip
+    if sender:
+        clauses.append("sender = %(sender)s")
+        params["sender"] = sender
+    if recipient:
+        clauses.append("recipient = %(recipient)s")
+        params["recipient"] = recipient
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cur.execute(
         f'SELECT {_AUDIT_COLS} FROM audit_logs{where} '
@@ -227,3 +297,42 @@ def list_audit(cur, login=None, event_type=None, since=None, until=None, limit=1
         params,
     )
     return [AuditEntry.from_row(r) for r in cur.fetchall()]
+
+
+# ── metrics aggregation (counts grouped by domain; filtered per-scope by caller) ─
+def list_domain_names(cur) -> list[str]:
+    cur.execute("SELECT domain FROM domains")
+    return [r["domain"] for r in cur.fetchall()]
+
+
+def _count_by_domain(cur, table: str, domain_expr: str) -> dict[str, int]:
+    # table/domain_expr are module constants, never user input
+    cur.execute(f"SELECT {domain_expr} AS dom, count(*) AS count FROM {table} GROUP BY dom")
+    return {r["dom"]: r["count"] for r in cur.fetchall()}
+
+
+def count_users_by_domain(cur) -> dict[str, int]:
+    return _count_by_domain(cur, "users", "split_part(email, '@', 2)")
+
+
+def count_forwardings_by_domain(cur) -> dict[str, int]:
+    return _count_by_domain(cur, "forwardings", "split_part(source, '@', 2)")
+
+
+def count_sender_logins_by_domain(cur) -> dict[str, int]:
+    return _count_by_domain(cur, "sender_login_maps", "split_part(allowed_sender, '@', 2)")
+
+
+def count_audit_by_domain(cur, since) -> list[dict]:
+    cur.execute(
+        "SELECT event_type, success, "
+        "CASE event_type "
+        "WHEN 'auth' THEN split_part(login, '@', 2) "
+        "WHEN 'send' THEN split_part(sender, '@', 2) "
+        "WHEN 'delivery' THEN split_part(recipient, '@', 2) "
+        "END AS dom, count(*) AS count "
+        'FROM audit_logs WHERE "timestamp" >= %(since)s '
+        "GROUP BY event_type, success, dom",
+        {"since": since},
+    )
+    return list(cur.fetchall())

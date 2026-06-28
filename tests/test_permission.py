@@ -1,5 +1,5 @@
 import pytest
-from mail_controller.domain.permission import Permission, PermissionAction
+from mail_controller.domain.permission.permission import Permission, PermissionAction
 from mail_controller.exception.validator_exceptions import ValidationError
 
 
@@ -107,3 +107,11 @@ def test_per_entity_glob_scope():
     assert perm.allows("a.example.com", PermissionAction.WRITE_USER)
     assert perm.allows("a.example.com", PermissionAction.READ_USER)
     assert not perm.allows("example.com", PermissionAction.WRITE_USER)
+
+
+def test_wildcard_matches_single_label_only():
+    perm = p("*.example.com:write_domain")
+    assert perm.allows("a.example.com", PermissionAction.WRITE_DOMAIN)
+    assert not perm.allows("a.b.example.com", PermissionAction.WRITE_DOMAIN)
+    assert not perm.allows("example.com", PermissionAction.WRITE_DOMAIN)
+    assert not perm.allows("a.example.com.evil.com", PermissionAction.WRITE_DOMAIN)

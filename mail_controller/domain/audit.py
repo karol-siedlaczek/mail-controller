@@ -36,3 +36,15 @@ class AuditEntry:
         if not self.login or "@" not in self.login:
             return None
         return self.login.rsplit("@", 1)[1].lower()
+
+    def authz_domain(self) -> str | None:
+        """Domain used for read-authorization: send→sender, delivery→recipient, else login."""
+        if self.event_type == "send":
+            addr = self.sender
+        elif self.event_type == "delivery":
+            addr = self.recipient
+        else:
+            addr = self.login
+        if not addr or "@" not in addr:
+            return None
+        return addr.rsplit("@", 1)[1].lower()

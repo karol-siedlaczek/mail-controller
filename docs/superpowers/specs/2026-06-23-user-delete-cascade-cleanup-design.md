@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Repo:** mail-controller (`mail_controller/`, `mailctl.py`)
-**Schema source of truth:** `docker-images-homelab/images/mail-server/sql/schema.sql`
+**Schema source of truth:** `mail-server/sql/schema.sql` (in the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo)
 
 ## Problem
 

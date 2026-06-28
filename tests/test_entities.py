@@ -56,3 +56,14 @@ def test_audit_entry_login_domain_none_when_no_at():
     a = AuditEntry(id=2, event_type="delivery", login="not-an-email")
     assert a.login_domain() is None
     assert AuditEntry(id=3, event_type="delivery", login=None).login_domain() is None
+
+
+def test_audit_entry_authz_domain_by_event_type():
+    from mail_controller.domain.audit import AuditEntry
+    send = AuditEntry(id=1, event_type="send", login=None, sender="u@example.com")
+    delivery = AuditEntry(id=2, event_type="delivery", login=None, recipient="v@other.com")
+    auth = AuditEntry(id=3, event_type="auth", login="w@third.com")
+    assert send.authz_domain() == "example.com"
+    assert delivery.authz_domain() == "other.com"
+    assert auth.authz_domain() == "third.com"
+    assert AuditEntry(id=4, event_type="send", sender=None).authz_domain() is None

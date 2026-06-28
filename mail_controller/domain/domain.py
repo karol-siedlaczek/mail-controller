@@ -3,12 +3,12 @@ from datetime import datetime
 from mail_controller.domain.address import DomainName
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Domain:
+    id: int | None = None
     name: DomainName
     dkim_selector: str = "default"
     active: bool = True
-    id: int | None = None
     created_at: datetime | None = None
 
     @classmethod
@@ -18,7 +18,7 @@ class Domain:
             dkim_selector=row["dkim_selector"],
             active=row["active"],
             id=row["id"],
-            created_at=row["created_at"],
+            created_at=row["created_at"]
         )
 
     def to_dict(self) -> dict:

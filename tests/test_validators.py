@@ -28,6 +28,16 @@ def test_query_bool():
         assert v.query_bool("keep_copy") is True
 
 
+def test_query_bool_absent_returns_default_none():
+    with app.test_request_context("/"):
+        assert v.query_bool("active", default=None) is None
+
+
+def test_query_bool_present_false():
+    with app.test_request_context("/?active=false"):
+        assert v.query_bool("active", default=None) is False
+
+
 def test_json_body_required_missing():
     with app.test_request_context("/", method="POST"):
         with pytest.raises(InvalidRequestError):

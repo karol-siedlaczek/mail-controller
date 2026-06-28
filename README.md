@@ -1,6 +1,6 @@
 # Mail Controller
 
-A management companion for the `mail-server` image from the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
+A management companion for the `mail-server` image from the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
 
 ## Development
 ### 1) Requirements
@@ -173,7 +173,7 @@ identities:
 - `identities[].id` - identity identifier used in token format `Bearer <id>.<token>` (must match `^[A-Za-z_0-9]+$`).
 - `identities[].allowed_cidrs` - CIDR list allowed to make requests for this identity (IPv4 or IPv6).
 - `identities[].permissions` - permission entries in `"<scope>:<action>"` format, where:
-  - `scope` - `*` (full admin) or a domain glob matched case-insensitively (`fnmatch`), e. g. `example.com`, `*.example.com`.
+  - `scope` - `*` (full admin), an exact domain matched case-insensitively (e. g. `example.com`), or a `*.<domain>` wildcard matching exactly one label below it (e. g. `*.example.com` matches `a.example.com` but not `example.com` or `a.b.example.com`).
   - `action` - one of the per-entity actions, or `*` (all actions for the scope):
     - `read_domain` / `write_domain`
     - `read_user` / `write_user`
@@ -207,27 +207,27 @@ CLI will print a ready-to-use value:
 TOKEN_ADMIN_HMAC=<hex_hmac>
 ```
 
-## Database role
+## Database role1
 `mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail_admin` with full CRUD on the four management tables and SELECT on `audit_logs`:
 
 ```sql
-CREATE ROLE 'mail_admin' NOLOGIN;
+CREATE ROLE "mail-server-admin" NOLOGIN;
 GRANT SELECT, INSERT, UPDATE, DELETE
-  ON domains, users, forwardings, sender_login_maps TO 'mail_admin';
-GRANT SELECT ON audit_logs TO 'mail_admin';
+  ON domains, users, forwardings, sender_login_maps TO 'mail-server-admin';
+GRANT SELECT ON audit_logs TO 'mail-server-admin';
 GRANT USAGE, SELECT ON SEQUENCE
   domains_id_seq, users_id_seq, forwardings_id_seq, sender_login_maps_id_seq
-  TO 'mail_admin';
+  TO 'mail-server-admin';
 ```
 
 After applying the schema, the operator creates a login role and grants it the group:
 
 ```sql
 CREATE ROLE mail_admin LOGIN PASSWORD '...';
-GRANT 'mail-server-rw_user' TO mail_admin;
+GRANT 'mail-server-admin_user' TO "mail-server_admin";
 ```
 
-Set `PG_USER=mail-server-rw_user` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
+Set `PG_USER=mail-server-admin_user` and `PG_PASSWORD` (or `PG_PASSWORD__FILE`) accordingly.
 
 ## API
 Required authorization header:
@@ -389,7 +389,7 @@ gunicorn wsgi:app --check-config
 
 ## Notes
 - Application logs are written to `${LOGS_DIR}/app.log`; gunicorn access and error logs go to stdout/stderr.
-- This project manages the `mail-server` image maintained in the [docker-images-homelab](https://github.com/karol-siedlaczek/docker-images-homelab) repo. `mail-controller` and `mail-server` are deliberately decoupled: their **only shared surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`) and the `{SCHEME}`-prefixed password format Dovecot reads. `mail-controller` never touches the mail daemons, the mail store, or the DKIM key files.
+- This project manages the `mail-server` image maintained in the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. `mail-controller` and `mail-server` are deliberately decoupled: their **only shared surface is the PostgreSQL schema** (owned by `mail-server`'s `sql/schema.sql`) and the `{SCHEME}`-prefixed password format Dovecot reads. `mail-controller` never touches the mail daemons, the mail store, or the DKIM key files.
 
 ## Publishing Docker image
 

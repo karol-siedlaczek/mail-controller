@@ -29,3 +29,13 @@ def test_direct_construction_does_not_validate():
     # trusted construction path: no exception even for non-canonical input
     assert DomainName("anything").value == "anything"
     assert EmailAddress("x@y").value == "x@y"
+
+
+@pytest.mark.parametrize("bad", ["user@-bad.com", "user@b..com", "user@a-.com"])
+def test_emailaddress_parse_rejects_invalid_domain_part(bad):
+    with pytest.raises(ValidationError):
+        EmailAddress.parse(bad)
+
+
+def test_emailaddress_parse_accepts_valid_domain_part():
+    assert EmailAddress.parse("alice@sub.example.com").value == "alice@sub.example.com"

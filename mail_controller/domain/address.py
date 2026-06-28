@@ -22,6 +22,7 @@ class EmailAddress:
     def parse(cls, raw: str) -> "EmailAddress":
         normalized = raw.strip().lower()
         Require.email("email", normalized)
+        Require.domain("email", normalized.rsplit("@", 1)[1])
         return cls(normalized)
 
     @property

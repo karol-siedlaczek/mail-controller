@@ -3,11 +3,13 @@ from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 from http import HTTPStatus
 from flask import Response, jsonify, request
+from mail_controller.api.context import Context
 from mail_controller.domain.identity import Identity
-from mail_controller.domain.permission import PermissionAction
+from mail_controller.domain.permission.permission_action import PermissionAction
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
+
 
 def log_request(msg: str, *, identity: Identity | None = None, level: str = "info") -> None:
     level = level.lower()
@@ -49,7 +51,10 @@ def build_response(
 
 
 def filter_rows_to_readable(
-    ctx, rows: list[T], domain_fn: Callable[[T], str | None], action: PermissionAction
+    ctx: Context, 
+    rows: list[T], 
+    domain_fn: Callable[[T], str | None], 
+    action: PermissionAction
 ) -> list[T]:
     """Keep only rows whose domain the identity may access with `action`.
 
@@ -67,6 +72,41 @@ def filter_rows_to_readable(
         if ctx.identity.allows(domain, action):
             out.append(row)
     return out
+
+
+def scope_metrics(ctx: Context, domain_names, users_by, fwd_by, slm_by, audit_rows):
+    """Reduce per-domain raw counts to read-scope-filtered totals + traffic.
+
+    Authorization reuses ctx.identity.allows (single matching source); a "*" reader
+    sees everything (including domain-less audit rows).
+    """
+    star = ctx._has_star(PermissionAction.READ_METRICS)
+
+    def visible(dom):
+        if not dom:
+            return star
+        return star or ctx.identity.allows(dom, PermissionAction.READ_METRICS)
+
+    totals = {
+        "domains": sum(1 for d in domain_names if visible(d)),
+        "users": sum(c for d, c in users_by.items() if visible(d)),
+        "forwardings": sum(c for d, c in fwd_by.items() if visible(d)),
+        "sender_logins": sum(c for d, c in slm_by.items() if visible(d))
+    }
+
+    traffic = {"auth_success": 0, "auth_failure": 0, "send": 0, "delivery": 0}
+    for row in audit_rows:
+        if not visible(row["dom"]):
+            continue
+        event_type, count = row["event_type"], row["count"]
+        if event_type == "auth":
+            traffic["auth_success" if row["success"] else "auth_failure"] += count
+        elif event_type == "send":
+            traffic["send"] += count
+        elif event_type == "delivery":
+            traffic["delivery"] += count
+
+    return totals, traffic
 
 
 def render_metrics(*, build_info: dict, totals: dict, traffic: dict) -> str:

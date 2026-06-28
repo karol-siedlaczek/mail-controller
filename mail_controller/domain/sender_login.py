@@ -3,13 +3,14 @@ from datetime import datetime
 from mail_controller.domain.address import EmailAddress
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SenderLogin:
+    id: int | None = None
     login_email: EmailAddress
     allowed_sender: EmailAddress
     active: bool = True
-    id: int | None = None
     created_at: datetime | None = None
+
 
     @classmethod
     def from_row(cls, row: dict) -> "SenderLogin":
@@ -18,8 +19,9 @@ class SenderLogin:
             allowed_sender=EmailAddress(row["allowed_sender"]),
             active=row["active"],
             id=row["id"],
-            created_at=row["created_at"],
+            created_at=row["created_at"]
         )
+
 
     def to_dict(self) -> dict:
         return {
