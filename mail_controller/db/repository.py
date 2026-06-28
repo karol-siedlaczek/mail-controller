@@ -83,7 +83,13 @@ def update_domain(cur, name: DomainName, dkim_selector, active) -> Domain | None
 
 
 def delete_domain(cur, domain: str) -> bool:
-    cur.execute("DELETE FROM domains WHERE domain = %(d)s", {"d": domain})
+    try:
+        cur.execute("DELETE FROM domains WHERE domain = %(d)s", {"d": domain})
+    except errors.ForeignKeyViolation:
+        raise ConflictError(
+            msg="Domain has assigned mailboxes and cannot be deleted",
+            detail={"domain": domain},
+        )
     return cur.rowcount > 0
 
 
@@ -190,6 +196,12 @@ def list_forwardings(cur, source=None, domain=None, term=None, active=None,
     return [Forwarding.from_row(r) for r in cur.fetchall()]
 
 
+def get_forwarding(cur, fid: int) -> Forwarding | None:
+    cur.execute(f"SELECT {_FWD_COLS} FROM forwardings WHERE id = %(i)s", {"i": fid})
+    row = cur.fetchone()
+    return Forwarding.from_row(row) if row else None
+
+
 def create_forwarding(cur, fwd: Forwarding) -> Forwarding:
     try:
         cur.execute(
@@ -201,6 +213,23 @@ def create_forwarding(cur, fwd: Forwarding) -> Forwarding:
         raise ConflictError(msg="Forwarding already exists",
                             detail={"source": fwd.source.value, "destination": fwd.destination.value})
     return Forwarding.from_row(cur.fetchone())
+
+
+def update_forwarding(cur, fid: int, source, destination, keep_copy, active) -> Forwarding | None:
+    try:
+        cur.execute(
+            f"UPDATE forwardings SET "
+            f"source = COALESCE(%(s)s, source), "
+            f"destination = COALESCE(%(d)s, destination), "
+            f"keep_copy = COALESCE(%(k)s, keep_copy), "
+            f"active = COALESCE(%(a)s, active) "
+            f"WHERE id = %(i)s RETURNING {_FWD_COLS}",
+            {"i": fid, "s": source, "d": destination, "k": keep_copy, "a": active},
+        )
+    except errors.UniqueViolation:
+        raise ConflictError(msg="Forwarding already exists", detail={"id": fid})
+    row = cur.fetchone()
+    return Forwarding.from_row(row) if row else None
 
 
 def delete_forwarding(cur, fid: int) -> bool:

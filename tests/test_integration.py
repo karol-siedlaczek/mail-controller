@@ -178,6 +178,61 @@ def test_delete_user_cascades_all_references(stack):
     requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin"))
 
 
+def test_delete_domain_with_mailboxes_is_409_not_500(stack):
+    """Deleting a domain that still has users must be a clean 409 conflict,
+    not a generic 500 from an unhandled foreign-key violation."""
+    dom = "hasusers.test"
+    requests.post(f"{stack}/api/domains", json={"domain": dom}, headers=_h("admin"))
+    requests.post(f"{stack}/api/users",
+                  json={"email": f"u@{dom}", "password": "Sup3rSecret!"}, headers=_h("admin"))
+
+    r = requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin"))
+    assert r.status_code == 409, r.text
+
+    # once the blocking user is gone, the domain deletes cleanly
+    assert requests.delete(f"{stack}/api/users/u@{dom}", headers=_h("admin")).status_code == 200
+    assert requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin")).status_code == 200
+
+
+def test_forwarding_show_and_update(stack):
+    """GET and PATCH on a single forwarding (new endpoints)."""
+    dom = "fwdedit.test"
+    requests.post(f"{stack}/api/domains", json={"domain": dom}, headers=_h("admin"))
+    r = requests.post(f"{stack}/api/forwardings",
+                      json={"source": f"a@{dom}", "destination": "ext@elsewhere.test", "keep_copy": False},
+                      headers=_h("admin"))
+    assert r.status_code == 201, r.text
+    fid = r.json()["data"]["id"]
+
+    # show by id
+    r = requests.get(f"{stack}/api/forwardings/{fid}", headers=_h("admin"))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["source"] == f"a@{dom}"
+    assert r.json()["data"]["keep_copy"] is False
+
+    # flip keep_copy and deactivate
+    r = requests.patch(f"{stack}/api/forwardings/{fid}",
+                       json={"keep_copy": True, "active": False}, headers=_h("admin"))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["keep_copy"] is True
+    assert r.json()["data"]["active"] is False
+
+    # change source and destination
+    r = requests.patch(f"{stack}/api/forwardings/{fid}",
+                       json={"source": f"b@{dom}", "destination": "other@elsewhere.test"},
+                       headers=_h("admin"))
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["source"] == f"b@{dom}"
+    assert r.json()["data"]["destination"] == "other@elsewhere.test"
+
+    # show on a non-existent id is 404
+    assert requests.get(f"{stack}/api/forwardings/999999", headers=_h("admin")).status_code == 404
+
+    # cleanup
+    requests.delete(f"{stack}/api/forwardings/{fid}", headers=_h("admin"))
+    requests.delete(f"{stack}/api/domains/{dom}", headers=_h("admin"))
+
+
 def test_metrics_endpoint(stack):
     r = requests.get(f"{stack}/api/metrics", headers=_h("admin"))
     assert r.status_code == 200, r.text

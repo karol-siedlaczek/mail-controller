@@ -2,6 +2,7 @@
 
 # Karol Siedlaczek 2026
 
+import sys
 import json
 import logging
 import base64
@@ -118,6 +119,20 @@ class Opt:
         return typer.Option(
             default, "--quota",
             help="Mailbox quota with unit, e.g. 500B, 256MB, 2GB (0 = unlimited)"
+        )
+
+    @staticmethod
+    def raw_quota() -> Any:
+        return typer.Option(
+            False, "--raw-quota",
+            help="Show quota in raw bytes (quota_bytes) instead of human-readable units"
+        )
+
+    @staticmethod
+    def yes() -> Any:
+        return typer.Option(
+            False, "--yes", "-y",
+            help="Skip the interactive confirmation prompt"
         )
 
     @staticmethod
@@ -643,10 +658,18 @@ def domain_set(
 def domain_rm(
     ctx: typer.Context,
     domain: str = typer.Argument(...),
+    yes: bool = Opt.yes(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
+    confirm_or_abort(
+        f"Domain '{domain}' will be deleted.",
+        yes,
+        warning=("A domain with assigned mailboxes cannot be deleted (it will fail on a "
+                 "foreign-key constraint). Forwardings are not linked to the domain and "
+                 "will remain as orphaned rows."),
+    )
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/domains/{domain}")
     result = CmdResult.from_response(response)
@@ -664,6 +687,7 @@ def user_list(
     active: Optional[bool] = Opt.active(),
     created_since: Optional[str] = Opt.created_since(),
     created_until: Optional[str] = Opt.created_until(),
+    raw_quota: bool = Opt.raw_quota(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
@@ -682,6 +706,7 @@ def user_list(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/users", params=params or None)
     result = CmdResult.from_response(response)
+    apply_quota_format(result.data, raw_quota)
     return result.render_and_exit(ctx.info_name, columns)
 
 
@@ -692,28 +717,30 @@ def user_add(
     password: str = typer.Option(None, "--password", help="Prompted if omitted"),
     quota: str = Opt.quota(),
     active: bool = typer.Option(True, "--active/--inactive"),
+    raw_quota: bool = Opt.raw_quota(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
     if not password:
         p1, p2 = getpass("Password: "), getpass("Confirm password: ")
-        
+
         if p1 != p2:
             raise typer.BadParameter("Passwords do not match")
         if not p1:
             raise typer.BadParameter("Password cannot be empty")
         password = p1
-        
+
     body = {
         "email": email,
-        "password": password, 
+        "password": password,
         "quota_bytes": parse_quota(quota),
         "active": active
     }
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/users", json_body=body)
     result = CmdResult.from_response(response)
+    apply_quota_format(result.data, raw_quota)
     return result.render_and_exit(ctx.info_name, columns)
 
 
@@ -721,6 +748,7 @@ def user_add(
 def user_show(
     ctx: typer.Context,
     email: str = typer.Argument(...),
+    raw_quota: bool = Opt.raw_quota(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
@@ -728,6 +756,7 @@ def user_show(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", f"/api/users/{email}")
     result = CmdResult.from_response(response)
+    apply_quota_format(result.data, raw_quota)
     return result.render_and_exit(ctx.info_name, columns)
 
 
@@ -761,6 +790,7 @@ def user_set(
     email: str = typer.Argument(...),
     quota: Optional[str] = Opt.quota(),
     active: Optional[bool] = typer.Option(None, "--active/--inactive"),
+    raw_quota: bool = Opt.raw_quota(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
@@ -773,6 +803,7 @@ def user_set(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("PATCH", f"/api/users/{email}", json_body=body)
     result = CmdResult.from_response(response)
+    apply_quota_format(result.data, raw_quota)
     return result.render_and_exit(ctx.info_name, columns)
 
 
@@ -780,10 +811,16 @@ def user_set(
 def user_rm(
     ctx: typer.Context,
     email: str = typer.Argument(...),
+    yes: bool = Opt.yes(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
+    confirm_or_abort(
+        f"Mailbox '{email}' will be deleted.",
+        yes,
+        warning="Associated forwardings and send-as grants for this address will also be deleted.",
+    )
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/users/{email}")
     result = CmdResult.from_response(response)
@@ -796,7 +833,7 @@ def user_rm(
 @forward_app.command("list", help="List forwardings")
 def forward_list(
     ctx: typer.Context,
-    source: str = typer.Option(None, "--source", "-s"),
+    source: str = typer.Option(None, "--source", "-s", help="Filter by exact source address"),
     domain: str = Opt.domain(),
     filter: str = Opt.filter("Filter by source or destination (substring)"),
     active: Optional[bool] = Opt.active(),
@@ -849,16 +886,59 @@ def forward_add(
     return result.render_and_exit(ctx.info_name, columns)
 
 
-@forward_app.command("rm", help="Delete a forwarding by id")
-def forward_rm(
+@forward_app.command("show", help="Show a forwarding by id")
+def forward_show(
     ctx: typer.Context,
-    fid: int = typer.Argument(...),
+    forward_id: int = typer.Argument(...),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
     client = Client.init(ctx, format, timeout=timeout)
-    response = client.request("DELETE", f"/api/forwardings/{fid}")
+    response = client.request("GET", f"/api/forwardings/{forward_id}")
+    result = CmdResult.from_response(response)
+    return result.render_and_exit(ctx.info_name, columns)
+
+
+@forward_app.command("set", help="Update a forwarding (source / destination / keep-copy / active)")
+def forward_set(
+    ctx: typer.Context,
+    forward_id: int = typer.Argument(...),
+    source: Optional[str] = typer.Option(None, "--source", "-s", help="New source address"),
+    destination: Optional[str] = typer.Option(None, "--destination", "-d", help="New destination address"),
+    keep_copy: Optional[bool] = typer.Option(None, "--keep-copy/--no-keep-copy"),
+    active: Optional[bool] = typer.Option(None, "--active/--inactive"),
+    timeout: int = Opt.timeout(),
+    format: str = Opt.format(),
+    columns: list[str] = Opt.columns()
+) -> None:
+    body: dict[str, Any] = {}
+    if source is not None:
+        body["source"] = source
+    if destination is not None:
+        body["destination"] = destination
+    if keep_copy is not None:
+        body["keep_copy"] = keep_copy
+    if active is not None:
+        body["active"] = active
+    client = Client.init(ctx, format, timeout=timeout)
+    response = client.request("PATCH", f"/api/forwardings/{forward_id}", json_body=body)
+    result = CmdResult.from_response(response)
+    return result.render_and_exit(ctx.info_name, columns)
+
+
+@forward_app.command("rm", help="Delete a forwarding by id")
+def forward_rm(
+    ctx: typer.Context,
+    forward_id: int = typer.Argument(...),
+    yes: bool = Opt.yes(),
+    timeout: int = Opt.timeout(),
+    format: str = Opt.format(),
+    columns: list[str] = Opt.columns()
+) -> None:
+    confirm_or_abort(f"Forwarding #{forward_id} will be deleted.", yes)
+    client = Client.init(ctx, format, timeout=timeout)
+    response = client.request("DELETE", f"/api/forwardings/{forward_id}")
     result = CmdResult.from_response(response)
     return result.render_and_exit(ctx.info_name, columns)
 
@@ -917,13 +997,15 @@ def sendas_grant(
 @sendas_app.command("revoke", help="Revoke a send-as grant by id")
 def sendas_revoke(
     ctx: typer.Context,
-    id: int = typer.Argument(...),
+    sendas_id: int = typer.Argument(...),
+    yes: bool = Opt.yes(),
     timeout: int = Opt.timeout(),
     format: str = Opt.format(),
     columns: list[str] = Opt.columns()
 ) -> None:
+    confirm_or_abort(f"Send-as grant #{sendas_id} will be revoked.", yes)
     client = Client.init(ctx, format, timeout=timeout)
-    response = client.request("DELETE", f"/api/sender-logins/{id}")
+    response = client.request("DELETE", f"/api/sender-logins/{sendas_id}")
     result = CmdResult.from_response(response)
     return result.render_and_exit(ctx.info_name, columns)
 
@@ -1044,6 +1126,55 @@ def load_settings(ctx: typer.Context, fmt: str | None = None) -> Settings:
             f"Provide --api-url, set {ENV_VAR_API_URL}, or add API_URL=<value> in {SETTINGS_FILE}"
         )
     return settings
+
+
+def confirm_or_abort(message: str, assume_yes: bool, *, warning: str | None = None) -> None:
+    """Prompt for a [y/N] confirmation before a destructive action.
+
+    Skipped entirely when `assume_yes` is set. In a non-interactive shell the
+    command aborts (rather than silently proceeding) unless `--yes` was passed.
+    """
+    if assume_yes:
+        return
+    typer.echo(message)
+    if warning:
+        typer.secho(warning, fg=typer.colors.YELLOW)
+    if not sys.stdin.isatty():
+        raise typer.BadParameter(
+            "Refusing to proceed without confirmation in a non-interactive shell; pass --yes"
+        )
+    if not typer.confirm("Proceed?", default=False):
+        typer.echo("Aborted.")
+        raise typer.Exit(code=1)
+
+
+def format_quota(num_bytes: int) -> str:
+    """Render a byte count as human-readable quota (0 = unlimited)."""
+    if not num_bytes:
+        return "unlimited"
+    for unit in ("TB", "GB", "MB", "KB", "B"):
+        factor = QUOTA_UNITS[unit]
+        if num_bytes >= factor:
+            value = num_bytes / factor
+            return f"{int(value)} {unit}" if value == int(value) else f"{value:.2f} {unit}"
+    return f"{num_bytes} B"
+
+
+def apply_quota_format(data: Any, raw_quota: bool) -> None:
+    """Replace the `quota_bytes` key with a formatted `quota` key in-place.
+
+    No-op when `raw_quota` is set. Keeps the original column position.
+    """
+    if raw_quota:
+        return
+    rows = data if isinstance(data, list) else [data]
+    for row in rows:
+        if isinstance(row, dict) and "quota_bytes" in row:
+            formatted = {("quota" if k == "quota_bytes" else k):
+                         (format_quota(v) if k == "quota_bytes" else v)
+                         for k, v in row.items()}
+            row.clear()
+            row.update(formatted)
 
 
 def parse_quota(value: str | None) -> int | None:

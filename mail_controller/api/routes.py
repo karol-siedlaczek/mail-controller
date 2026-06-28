@@ -333,6 +333,47 @@ def forwarding_create() -> Response:
     return build_response(201, data=forwarding.to_dict())
 
 
+@api.route("/api/forwardings/<int:fid>", methods=["GET"])
+def forwarding_get(fid: int) -> Response:
+    ctx = Context.authenticate()
+    db = Database.get_from_global_context()
+    with db.transaction() as cur:
+        forwarding = repo.get_forwarding(cur, fid)
+    if not forwarding:
+        raise ResourceNotFoundError(msg="Forwarding not found", detail={"id": fid})
+    ctx.require(forwarding.source.domain.value, PermissionAction.READ_FORWARDING)
+    return build_response(200, data=forwarding.to_dict())
+
+
+@api.route("/api/forwardings/<int:fid>", methods=["PATCH"])
+def forwarding_update(fid: int) -> Response:
+    ctx = Context.authenticate()
+    body = json_body()
+    raw_source = json_body_field(body, "source", required=False)
+    raw_destination = json_body_field(body, "destination", required=False)
+    keep_copy = json_body_field(body, "keep_copy", required=False)
+    active = json_body_field(body, "active", required=False)
+    source = EmailAddress.parse(raw_source) if raw_source is not None else None
+    destination = EmailAddress.parse(raw_destination) if raw_destination is not None else None
+
+    db = Database.get_from_global_context()
+    with db.transaction() as cur:
+        target = repo.get_forwarding(cur, fid)
+        if not target:
+            raise ResourceNotFoundError(msg="Forwarding not found", detail={"id": fid})
+        ctx.require(target.source.domain.value, PermissionAction.WRITE_FORWARDING)
+        if source is not None:
+            ctx.require(source.domain.value, PermissionAction.WRITE_FORWARDING)
+        forwarding = repo.update_forwarding(
+            cur, fid,
+            source.value if source is not None else None,
+            destination.value if destination is not None else None,
+            None if keep_copy is None else bool(keep_copy),
+            None if active is None else bool(active),
+        )
+    return build_response(200, data=forwarding.to_dict())
+
+
 @api.route("/api/forwardings/<int:fid>", methods=["DELETE"])
 def forwarding_delete(fid: int) -> Response:
     ctx = Context.authenticate()

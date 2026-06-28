@@ -1,6 +1,7 @@
 import pytest
+import psycopg2
 from mail_controller.db import repository as repo
-from mail_controller.exception.api_exceptions import UnprocessableError
+from mail_controller.exception.api_exceptions import UnprocessableError, ConflictError
 
 
 class FakeCursor:
@@ -38,6 +39,17 @@ class FakeCursor:
             if isinstance(p, dict):
                 vals.extend(p.values())
         return vals
+
+
+class RaisingCursor(FakeCursor):
+    """FakeCursor whose execute() raises the given exception (to test error paths)."""
+    def __init__(self, exc, **kwargs):
+        super().__init__(**kwargs)
+        self._exc = exc
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+        raise self._exc
 
 
 def test_list_users_never_selects_password():
@@ -225,6 +237,19 @@ def test_create_domain_binds_value_and_returns_entity():
     assert result == Domain.from_row(_DOMAIN_ROW)
 
 
+def test_delete_domain_with_mailboxes_raises_conflict_not_500():
+    # A FK violation (domain still referenced by users) must surface as a clean
+    # ConflictError, not propagate as a generic 500.
+    cur = RaisingCursor(psycopg2.errors.ForeignKeyViolation())
+    with pytest.raises(ConflictError):
+        repo.delete_domain(cur, "example.com")
+
+
+def test_delete_domain_without_references_returns_true():
+    cur = FakeCursor(rowcount=1)
+    assert repo.delete_domain(cur, "example.com") is True
+
+
 # ── mailbox entity tests ─────────────────────────────────────────────────────
 from mail_controller.domain.mailbox import Mailbox
 from mail_controller.domain.address import EmailAddress
@@ -267,6 +292,51 @@ def test_create_forwarding_binds_values_and_returns_entity():
     result = repo.create_forwarding(cur, fwd)
     assert "a@example.com" in cur.all_sql_params()
     assert result == Forwarding.from_row(_FWD_ROW)
+
+
+def test_get_forwarding_binds_id_and_returns_entity():
+    cur = FakeCursor(rows=[_FWD_ROW])
+    result = repo.get_forwarding(cur, 3)
+    sql, params = cur.executed[-1]
+    assert "where id = %(i)s" in sql.lower()
+    assert params == {"i": 3}
+    assert result == Forwarding.from_row(_FWD_ROW)
+
+
+def test_get_forwarding_absent_returns_none():
+    cur = FakeCursor(rows=[])
+    assert repo.get_forwarding(cur, 999) is None
+
+
+def test_update_forwarding_coalesces_and_binds_all_fields():
+    cur = FakeCursor(rows=[_FWD_ROW])
+    result = repo.update_forwarding(cur, 3, "new@example.com", "dst@elsewhere.test", True, False)
+    sql, params = cur.executed[-1]
+    assert "update forwardings set" in sql.lower()
+    assert "source = coalesce(%(s)s, source)" in sql.lower()
+    assert "destination = coalesce(%(d)s, destination)" in sql.lower()
+    assert "keep_copy = coalesce(%(k)s, keep_copy)" in sql.lower()
+    assert "active = coalesce(%(a)s, active)" in sql.lower()
+    assert params == {"i": 3, "s": "new@example.com", "d": "dst@elsewhere.test", "k": True, "a": False}
+    assert result == Forwarding.from_row(_FWD_ROW)
+
+
+def test_update_forwarding_partial_passes_none_for_untouched_fields():
+    cur = FakeCursor(rows=[_FWD_ROW])
+    repo.update_forwarding(cur, 3, None, None, True, None)
+    _, params = cur.executed[-1]
+    assert params == {"i": 3, "s": None, "d": None, "k": True, "a": None}
+
+
+def test_update_forwarding_absent_returns_none():
+    cur = FakeCursor(rows=[])
+    assert repo.update_forwarding(cur, 999, None, None, None, None) is None
+
+
+def test_update_forwarding_duplicate_raises_conflict():
+    cur = RaisingCursor(psycopg2.errors.UniqueViolation())
+    with pytest.raises(ConflictError):
+        repo.update_forwarding(cur, 3, "dup@example.com", None, None, None)
 
 
 # ── sender_login entity tests ────────────────────────────────────────────────

@@ -262,6 +262,8 @@ Endpoints:
 | `DELETE` | `/api/users/<email>` | :heavy_check_mark: | - | - | Delete a mailbox |
 | `GET` | `/api/forwardings` | :heavy_check_mark: | - | `source`, `domain` | List forwardings (optionally filtered by source/domain) |
 | `POST` | `/api/forwardings` | :heavy_check_mark: | `{source, destination, keep_copy?}` | - | Create a forwarding from `source` to `destination` (→ `201`) |
+| `GET` | `/api/forwardings/<id>` | :heavy_check_mark: | - | - | Get a single forwarding by id |
+| `PATCH` | `/api/forwardings/<id>` | :heavy_check_mark: | `{source?, destination?, keep_copy?, active?}` | - | Update a forwarding's source, destination, keep-copy and/or active flag |
 | `DELETE` | `/api/forwardings/<id>` | :heavy_check_mark: | - | - | Delete a forwarding by id |
 | `GET` | `/api/sender-logins` | :heavy_check_mark: | - | `domain` | List send-as grants (optionally filtered by domain) |
 | `POST` | `/api/sender-logins` | :heavy_check_mark: | `{login_email, allowed_sender}` | - | Grant `login_email` permission to send as `allowed_sender` (→ `201`) |
@@ -272,6 +274,7 @@ Notes:
 - `password` is hashed server-side and never returned; the password hash is never included in any user response.
 - `/api/audit`: `limit` defaults to `100`, max `1000`. Audit rows with no `login` (no domain) require `*:read_audit`.
 - **Error responses** follow the standard envelope: `{method, http_code, http_status, path, message, detail, data, timestamp}`. Schema violations and missing-domain FK surface as `422`, UNIQUE conflicts as `409`, missing resources as `404`, auth failures as `401`/`403`.
+- Deleting a domain that still has mailboxes is rejected with `409` (the foreign key from `users` blocks it); remove the mailboxes first. Deleting a mailbox cascades: forwardings and send-as grants referencing that address are removed too.
 
 Examples:
 ```bash
@@ -314,6 +317,8 @@ mailctl
 ├── forward                         Manage forwardings
 │   ├── list                        List forwardings (optionally filtered by source/domain)
 │   ├── add                         Create a forwarding from source to destination
+│   ├── show                        Show a single forwarding by id
+│   ├── set                         Update a forwarding's source, destination, keep-copy and/or active flag
 │   └── rm                          Delete a forwarding by id
 ├── sendas                          Manage send-as grants
 │   ├── list                        List send-as grants (optionally filtered by domain)
@@ -324,6 +329,9 @@ mailctl
 Run `mailctl --help`, or `mailctl <group> --help` / `mailctl <group> <command> --help`, to see all options for each command.
 
 Each subcommand accepts `-t/--timeout` (default `10`), `-f/--format` (`table` (default), `json`, `kv`, `value`) and `-c/--column` (repeatable). Passwords are never echoed; they are read via a confirm prompt when omitted.
+
+- **Delete/revoke confirmation:** `domain rm`, `user rm`, `forward rm` and `sendas revoke` prompt for a `[y/N]` confirmation before acting. Pass `-y/--yes` to skip it (for automation). In a non-interactive shell the command aborts unless `--yes` is given, so it never deletes unattended by accident.
+- **Quota display:** `user` commands render `quota` in human-readable units (`B`/`KB`/`MB`/`GB`/`TB`, `0` shown as `unlimited`). Pass `--raw-quota` to show the raw `quota_bytes` integer instead. Input quotas (`--quota`) still accept a unit, e. g. `256MB`, `2GB`.
 
 Example usage:
 ```bash
@@ -339,6 +347,10 @@ mailctl user add info@example.com
 # Forward mail, keeping a local copy
 mailctl forward add info@example.com example@gmail.com --keep-copy
 
+# Inspect then update a forwarding (e. g. stop keeping a local copy)
+mailctl forward show 42
+mailctl forward set 42 --no-keep-copy
+
 # Grant send-as
 mailctl sendas grant info@example.com noreply@example.com
 
@@ -352,7 +364,7 @@ mailctl domain list -f json
 Settings are resolved in this order (highest priority first):
 
 1. CLI flags (`--api-url`, `--token`, `--log-file`, `--log-level`).
-2. Environment variables: `MAILADMIN_API_URL`, `MAILADMIN_TOKEN`, `MAILADMIN_LOG_FILE`, `MAILADMIN_LOG_LEVEL`.
+2. Environment variables: `MAILCTL_API_URL`, `MAILCTL_TOKEN`, `MAILCTL_LOG_FILE`, `MAILCTL_LOG_LEVEL`.
 3. `~/.mailctl` file (must have `600` permissions, `chmod 600 ~/.mailctl`):
 
 ```ini
