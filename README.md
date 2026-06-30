@@ -1,6 +1,6 @@
 # Mail Controller
 
-A management companion for the `mail-server` image from the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database — `domains`, `users`, `forwardings`, `sender_login_maps` — and read `audit_logs`. It is modelled on [cert-hub](https://github.com/karol-siedlaczek/cert-hub) (Flask + gunicorn API, Typer + Rich thin-client CLI, HMAC bearer auth with per-identity RBAC).
+A management companion for the `mail-server` image from the [mail-server](https://github.com/karol-siedlaczek/mail-server) repo. It exposes a Flask + gunicorn HTTP API plus a `mailctl` CLI that perform RBAC-checked CRUD over that mail server's **external PostgreSQL** database - `domains`, `users`, `forwardings`, `sender_login_maps` - and read `audit_logs`.
 
 ## Development
 ### 1) Requirements
@@ -207,8 +207,8 @@ CLI will print a ready-to-use value:
 TOKEN_ADMIN_HMAC=<hex_hmac>
 ```
 
-## Database role1
-`mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail_admin` with full CRUD on the four management tables and SELECT on `audit_logs`:
+## Database role
+`mail-server`'s `sql/schema.sql` creates a NOLOGIN group role `mail-server_admin` with full CRUD on the four management tables and SELECT on `audit_logs`:
 
 ```sql
 CREATE ROLE "mail-server-admin" NOLOGIN;
