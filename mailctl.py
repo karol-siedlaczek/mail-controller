@@ -269,7 +269,8 @@ class CmdResult:
         context_info: str | None = None,
         columns: tuple[str] | None = None,
         *,
-        sensitive_columns: tuple[str] | None = None
+        sensitive_columns: tuple[str] | None = None,
+        single_row: bool = False
     ) -> NoReturn:
         def _convert_val_as_str(val: Any) -> str:
             if isinstance(val, (dict, list)):
@@ -376,20 +377,28 @@ class CmdResult:
             else:
                 _print(data)
         elif fmt == Format.TABLE:
-            rows = data if isinstance(data, list) else [data]
-            rows = [r for r in rows if isinstance(r, dict)]
-            if rows:
+            if single_row and isinstance(data, dict):
                 table = Table(show_header=True, header_style="bold", expand=True, show_lines=True, box=box.ROUNDED)
-
-                cols = list(rows[0].keys())
-                for c in cols:
-                    table.add_column(str(c), overflow="fold") # Fold helps if mucho text
-
-                for row in rows:
-                    table.add_row(*[_render_table_cell(row.get(c, "")) for c in cols])
+                table.add_column("Field", overflow="fold")
+                table.add_column("Value", overflow="fold")
+                for key, val in data.items():
+                    table.add_row(str(key), _render_table_cell(val))
                 _print(table)
-            elif data:
-                _print(data)
+            else:
+                rows = data if isinstance(data, list) else [data]
+                rows = [r for r in rows if isinstance(r, dict)]
+                if rows:
+                    table = Table(show_header=True, header_style="bold", expand=True, show_lines=True, box=box.ROUNDED)
+
+                    cols = list(rows[0].keys())
+                    for c in cols:
+                        table.add_column(str(c), overflow="fold") # Fold helps if mucho text
+
+                    for row in rows:
+                        table.add_row(*[_render_table_cell(row.get(c, "")) for c in cols])
+                    _print(table)
+                elif data:
+                    _print(data)
 
         data_to_log = data
         if not LOGGER.disabled and sensitive_columns:
@@ -615,7 +624,7 @@ def domain_add(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/domains", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @domain_app.command("show", help="Show a domain")
@@ -629,7 +638,7 @@ def domain_show(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", f"/api/domains/{domain}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @domain_app.command("set", help="Update a domain (dkim selector / active)")
@@ -651,7 +660,7 @@ def domain_set(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("PATCH", f"/api/domains/{domain}", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @domain_app.command("rm", help="Delete a domain")
@@ -673,7 +682,7 @@ def domain_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/domains/{domain}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 # ── user commands ────────────────────────────────────────────────────────────────────────
@@ -741,7 +750,7 @@ def user_add(
     response = client.request("POST", "/api/users", json_body=body)
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @user_app.command("show", help="Show a mailbox")
@@ -757,7 +766,7 @@ def user_show(
     response = client.request("GET", f"/api/users/{email}")
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @user_app.command("passwd", help="Set/reset a mailbox password")
@@ -781,7 +790,7 @@ def user_passwd(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", f"/api/users/{email}/password", json_body={"password": password})
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @user_app.command("set", help="Update a mailbox (quota / active)")
@@ -804,7 +813,7 @@ def user_set(
     response = client.request("PATCH", f"/api/users/{email}", json_body=body)
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @user_app.command("rm", help="Delete a mailbox")
@@ -824,7 +833,7 @@ def user_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/users/{email}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 # ── forwarding commands ───────────────────────────────────────────────────────────────────
@@ -883,7 +892,7 @@ def forward_add(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/forwardings", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @forward_app.command("show", help="Show a forwarding by id")
@@ -897,7 +906,7 @@ def forward_show(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", f"/api/forwardings/{forward_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @forward_app.command("set", help="Update a forwarding (source / destination / keep-copy / active)")
@@ -924,7 +933,7 @@ def forward_set(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("PATCH", f"/api/forwardings/{forward_id}", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @forward_app.command("rm", help="Delete a forwarding by id")
@@ -940,7 +949,7 @@ def forward_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/forwardings/{forward_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 # ── send-as (sender_login) commands ────────────────────────────────────────────────────────
@@ -991,7 +1000,7 @@ def sendas_grant(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/sender-logins", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 @sendas_app.command("revoke", help="Revoke a send-as grant by id")
@@ -1007,7 +1016,7 @@ def sendas_revoke(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/sender-logins/{sendas_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.info_name, columns, single_row=True)
 
 
 # ── audit commands ─────────────────────────────────────────────────────────────────────────
