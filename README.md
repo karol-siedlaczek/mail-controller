@@ -332,6 +332,7 @@ Each subcommand accepts `-t/--timeout` (default `10`), `-f/--format` (`table` (d
 
 - **Delete/revoke confirmation:** `domain rm`, `user rm`, `forward rm` and `sendas revoke` prompt for a `[y/N]` confirmation before acting. Pass `-y/--yes` to skip it (for automation). In a non-interactive shell the command aborts unless `--yes` is given, so it never deletes unattended by accident.
 - **Quota display:** `user` commands render `quota` in human-readable units (`B`/`KB`/`MB`/`GB`/`TB`, `0` shown as `unlimited`). Pass `--raw-quota` to show the raw `quota_bytes` integer instead. Input quotas (`--quota`) still accept a unit, e. g. `256MB`, `2GB`.
+- **Single-record layout:** commands that act on one record (`add`, `show`, `set`, `rm`, `user password`, `sendas grant/revoke`) render the `table` format vertically as a two-column `Field` / `Value` table, one row per field. `list` commands keep the classic horizontal table (one column per field). `json`/`kv`/`value` output is unaffected.
 
 Example usage:
 ```bash
