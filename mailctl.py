@@ -404,9 +404,10 @@ class CmdResult:
         if not LOGGER.disabled and sensitive_columns:
             data_to_log = self._mask_sensitive(data, sensitive_columns)
 
+        cmd = context_info.split(" ", 1)[1] if context_info and " " in context_info else context_info
         LOGGER.log(
             logging.INFO if self.exit_code == ExitCode.OK else logging.ERROR,
-            f"{f'Result for {context_info} command: ' if context_info else ''}{data_to_log}"
+            f"{f'[{cmd}] Result: ' if cmd else ''}{data_to_log}"
         )
         raise typer.Exit(code=self.exit_code.value)
 
@@ -489,7 +490,7 @@ def version(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/version")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 # ── token commands ───────────────────────────────────────────────────────────
@@ -505,7 +506,7 @@ def token_scope(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/token/scope")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @token_app.command(name = "identity", help="Current identity (allowed CIDRs, permissions)")
@@ -521,7 +522,7 @@ def token_identity(
 
     if isinstance(result.data, dict) and result.data.get("permissions"):
         result.data["permissions"] = [f"{p['scope']}:{p['action']}" for p in result.data["permissions"]]
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @token_app.command(name="gen-hmac", help="Generate TOKEN_<ID>_HMAC for server configuration")
@@ -604,7 +605,7 @@ def domain_list(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/domains", params=params or None)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @domain_app.command("add", help="Add a domain")
@@ -624,7 +625,7 @@ def domain_add(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/domains", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @domain_app.command("show", help="Show a domain")
@@ -638,7 +639,7 @@ def domain_show(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", f"/api/domains/{domain}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @domain_app.command("set", help="Update a domain (dkim selector / active)")
@@ -660,7 +661,7 @@ def domain_set(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("PATCH", f"/api/domains/{domain}", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @domain_app.command("rm", help="Delete a domain")
@@ -682,7 +683,7 @@ def domain_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/domains/{domain}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 # ── user commands ────────────────────────────────────────────────────────────────────────
@@ -716,7 +717,7 @@ def user_list(
     response = client.request("GET", "/api/users", params=params or None)
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @user_app.command("add", help="Create a mailbox")
@@ -750,7 +751,7 @@ def user_add(
     response = client.request("POST", "/api/users", json_body=body)
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @user_app.command("show", help="Show a mailbox")
@@ -766,7 +767,7 @@ def user_show(
     response = client.request("GET", f"/api/users/{email}")
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @user_app.command("passwd", help="Set/reset a mailbox password")
@@ -790,7 +791,7 @@ def user_passwd(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", f"/api/users/{email}/password", json_body={"password": password})
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @user_app.command("set", help="Update a mailbox (quota / active)")
@@ -813,7 +814,7 @@ def user_set(
     response = client.request("PATCH", f"/api/users/{email}", json_body=body)
     result = CmdResult.from_response(response)
     apply_quota_format(result.data, raw_quota)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @user_app.command("rm", help="Delete a mailbox")
@@ -833,7 +834,7 @@ def user_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/users/{email}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 # ── forwarding commands ───────────────────────────────────────────────────────────────────
@@ -871,7 +872,7 @@ def forward_list(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/forwardings", params=params or None)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @forward_app.command("add", help="Add a forwarding")
@@ -892,7 +893,7 @@ def forward_add(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/forwardings", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @forward_app.command("show", help="Show a forwarding by id")
@@ -906,7 +907,7 @@ def forward_show(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", f"/api/forwardings/{forward_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @forward_app.command("set", help="Update a forwarding (source / destination / keep-copy / active)")
@@ -933,7 +934,7 @@ def forward_set(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("PATCH", f"/api/forwardings/{forward_id}", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @forward_app.command("rm", help="Delete a forwarding by id")
@@ -949,7 +950,7 @@ def forward_rm(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/forwardings/{forward_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 # ── send-as (sender_login) commands ────────────────────────────────────────────────────────
@@ -981,7 +982,7 @@ def sendas_list(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/sender-logins", params=params or None)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 @sendas_app.command("grant", help="Grant: login_email may send AS allowed_sender")
@@ -1000,7 +1001,7 @@ def sendas_grant(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("POST", "/api/sender-logins", json_body=body)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 @sendas_app.command("revoke", help="Revoke a send-as grant by id")
@@ -1016,7 +1017,7 @@ def sendas_revoke(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("DELETE", f"/api/sender-logins/{sendas_id}")
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns, single_row=True)
+    return result.render_and_exit(ctx.command_path, columns, single_row=True)
 
 
 # ── audit commands ─────────────────────────────────────────────────────────────────────────
@@ -1067,7 +1068,7 @@ def audit(
     client = Client.init(ctx, format, timeout=timeout)
     response = client.request("GET", "/api/audit", params=params)
     result = CmdResult.from_response(response)
-    return result.render_and_exit(ctx.info_name, columns)
+    return result.render_and_exit(ctx.command_path, columns)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
